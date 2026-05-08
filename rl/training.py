@@ -18,7 +18,7 @@ from stable_baselines3.common.monitor import Monitor
 
 from rich.console import Console
 from environment import env_creator, TentacleTargetFollowingEnv
-from loaders import RLEnvironmentConfig
+from common.loaders import RLEnvironmentConfig
 
 
 logger = logging.getLogger(__name__)

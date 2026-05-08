@@ -7,9 +7,10 @@ from typing import Tuple, Dict, Any, Optional, Union
 import mujoco.viewer
 import os
 from collections import deque
-from loaders import RLEnvironmentConfig
+from common.loaders import RLEnvironmentConfig
 from typing import  Optional, Dict, Any
-import time
+from common.support import _get_tip_position, _action_to_ctrl
+
 class TentacleTargetFollowingEnv(gym.Env):
 
 
@@ -24,7 +25,7 @@ class TentacleTargetFollowingEnv(gym.Env):
         render_mode: str = None,
     ):
         super().__init__()
-
+        self.targets=np.load("demonstration_dataset.npz")["states"]
         self.config = config
         self.render_mode = render_mode
         xml_file = "../assets/simulation/tentacle.xml"
@@ -163,7 +164,7 @@ class TentacleTargetFollowingEnv(gym.Env):
     def _get_current_raw_obs(self) -> np.ndarray:
         """Gets normalized observation for current state."""
 
-        tip_position = self._get_tip_position()
+        tip_position = _get_tip_position(self.model,self.data)
         target_position = self.target_position.copy()
 
         # Normalize positions to roughly [-1, 1]
@@ -185,17 +186,15 @@ class TentacleTargetFollowingEnv(gym.Env):
 
         return np.clip(obs, -1.0, 1.0)
 
-    def _get_tip_position(self) -> np.ndarray:
-        return self.data.site_xpos[self.tip_site_id].copy()
 
     
 
     def step(self, action):
         action = np.clip(action, -1, 1)
-        ctrl = self.actuator_low + (action + 1.0) * 0.5 * (self.actuator_high - self.actuator_low)
+        ctrl =_action_to_ctrl(action,self.actuator_low,self.actuator_high)
         self.data.ctrl[:] = ctrl
 
-        
+        print(self.target_position)
         self.data.ctrl[:] = ctrl
         # --- simulate ---
         for _ in range(self.frame_skip):
@@ -209,7 +208,39 @@ class TentacleTargetFollowingEnv(gym.Env):
 
         return self._compute_step()
 
+    def _compute_step(self):
 
+        tip = _get_tip_position(self.model,self.data)
+      
+        dist = np.linalg.norm(
+            tip - self.target_position
+        )
+
+        normalized_dist = dist / self.max_distance
+
+        normalized_dist = np.clip(
+            normalized_dist,
+            0.0,
+            1.0
+        )
+
+        # Smooth normalized reward
+        reward = np.exp(-self.reward_distance_scale * normalized_dist)
+
+        truncated = (
+            self._elapsed_steps >= self._max_episode_steps
+        )
+
+        obs = self._get_current_raw_obs()
+        self.obs_buffer.append(obs)
+
+        return (
+            self._get_obs(),
+            float(reward),
+            False,
+            truncated,
+            self._get_info(),
+        )
     def _is_unstable(self):
         return (
             not np.isfinite(self.data.qpos).all()
@@ -228,63 +259,23 @@ class TentacleTargetFollowingEnv(gym.Env):
         )
 
 
-    def _compute_step(self):
-
-        tip = self._get_tip_position()
-      
-        dist = np.linalg.norm(
-            tip - self.target_position
-        )
-
-        # Normalize distance to [0,1]
-        normalized_dist = dist / self.max_distance
-
-        normalized_dist = np.clip(
-            normalized_dist,
-            0.0,
-            1.0
-        )
-
-        # Smooth normalized reward
-        reward = np.exp(-5.0 * normalized_dist)
-
-        truncated = (
-            self._elapsed_steps >= self._max_episode_steps
-        )
-
-        obs = self._get_current_raw_obs()
-        self.obs_buffer.append(obs)
-
-        return (
-            self._get_obs(),
-            float(reward),
-            False,
-            truncated,
-            self._get_info(),
-        )
+   
     
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         mujoco.mj_resetData(self.model, self.data)
 
-        self.prev_action=None
-        self.prev_dist=None
         self._elapsed_steps = 0
         self.obs_buffer.clear()
         
 
-        min_val, max_val = self.initial_actuator_config
-
-        action = self.np_random.uniform(min_val, max_val, size=3)
-        action = np.clip(action, self.actuator_low, self.actuator_high)
-
-        self.current_position = action
-        self.data.ctrl[:] = action
-        self.target_position = self.np_random.uniform(
-            self.target_bounds_min,
-            self.target_bounds_max,
-            size=3
-        ).astype(np.float32)
+        self.data.qvel[:] = 0
+        self.data.ctrl[:] = 0.19 
+        
+        self.prev_action = 2 * ((0.19 - self.actuator_low) / (self.actuator_high - self.actuator_low))-1
+        self.current_position = _get_tip_position(self.model,self.data)
+        self.target_position = self.targets[
+        self.np_random.integers(len(self.targets))].copy()
 
         self.data.site_xpos[self.target_site_id] = self.target_position
 
@@ -294,10 +285,12 @@ class TentacleTargetFollowingEnv(gym.Env):
         for _ in range(self.num_frames):
             self.obs_buffer.append(raw)
 
-        tip = self._get_tip_position()
+        tip = _get_tip_position(self.model,self.data)
         self.prev_dist = np.linalg.norm(tip - self.target_position)
-
         return self._get_obs(), self._get_info()
+    
+
+
     def _get_info(self) -> Dict[str, Any]:
         return {
             "elapsed_steps": self._elapsed_steps,

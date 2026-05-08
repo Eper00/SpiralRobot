@@ -10,10 +10,9 @@ import numpy as np
 from stable_baselines3 import PPO
 from rich.console import Console
 
-from environment import TentacleTargetFollowingEnv
-from loaders import  RLTrainingConfig
-import matplotlib.pyplot as plt
-import torch
+from rl.environment import TentacleTargetFollowingEnv
+from common.loaders import  RLTrainingConfig
+
 console = Console()
 app = typer.Typer()
 
@@ -106,6 +105,7 @@ def evaluate(
                 )
 
                 obs, reward, terminated, truncated, info = env.step(action)
+                
                 done = terminated or truncated
                 ep_reward += reward
                 ep_len += 1
