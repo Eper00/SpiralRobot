@@ -52,7 +52,7 @@ def train(
     # ------------------------------------------------
     # dirs
     # ------------------------------------------------
-    run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S_il")
     root = Path("results") / run_name
     model_dir = root / "models"
     model_dir.mkdir(parents=True, exist_ok=True)

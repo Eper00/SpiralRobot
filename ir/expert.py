@@ -124,19 +124,19 @@ class TentacleTargetFollowingClone(gym.Env):
         actions = np.array(actions, dtype=np.float32)
 
         # ---------------------------------------
-        # target = final tip position
+        # target = final position of trajectory
         # ---------------------------------------
         target = tips[-1].copy()
 
         # ---------------------------------------
-        # actuator lengths (FIXED ONCE per traj)
+        # actuator state (fixed per trajectory)
         # ---------------------------------------
         actuator_lengths = None
         if self.include_actuator_lengths_in_obs:
             actuator_lengths = self.data.actuator_length.copy().astype(np.float32)
 
         # ---------------------------------------
-        # build observations (T states)
+        # build observations (T steps)
         # ---------------------------------------
         states = []
 
@@ -155,13 +155,12 @@ class TentacleTargetFollowingClone(gym.Env):
         states = np.array(states, dtype=np.float32)
 
         # ---------------------------------------
-        # 🔥 IMPORTANT: T+1 OBS (imitation requirement)
+        # 🔥 IMPORTANT: add final obs (T+1 requirement)
         # ---------------------------------------
         final_obs = states[-1].copy()
         states = np.vstack([states, final_obs])
 
         return states, actions
-
     def build_obs(self, tip, target, actuator=None):
         obs = [tip, target]
 
@@ -181,7 +180,6 @@ class TentacleTargetFollowingClone(gym.Env):
 
             tips = []
             actions = []
-            infos = []
 
             for _ in range(self._max_episode_steps):
 
@@ -190,7 +188,7 @@ class TentacleTargetFollowingClone(gym.Env):
                 ctrl = _action_to_ctrl(
                     action,
                     self.actuator_low,
-                    self.actuator_high,
+                    self.actuator_high
                 )
 
                 for _ in range(self.frame_skip):
@@ -198,17 +196,18 @@ class TentacleTargetFollowingClone(gym.Env):
                     mujoco.mj_step(self.model, self.data)
 
                 tip = _get_tip_position(self.model, self.data)
-                target = None  # ha nincs explicit target, itt később fixálhatod
 
                 tips.append(tip.copy())
                 actions.append(action.copy())
-                infos.append({})
 
             tips = np.array(tips, dtype=np.float32)
             actions = np.array(actions, dtype=np.float32)
 
-            # target = final tip
             target = tips[-1].copy()
+
+            actuator_lengths = None
+            if self.include_actuator_lengths_in_obs:
+                actuator_lengths = self.data.actuator_length.copy().astype(np.float32)
 
             obs = []
 
@@ -217,23 +216,23 @@ class TentacleTargetFollowingClone(gym.Env):
                 obs_parts = [tips[i], target]
 
                 if self.include_actuator_lengths_in_obs:
-                    actuator_lengths = self.data.actuator_length.copy().astype(np.float32)
                     obs_parts.append(actuator_lengths)
 
                 obs.append(np.concatenate(obs_parts).astype(np.float32))
 
             obs = np.array(obs, dtype=np.float32)
 
+            # 🔥 CRITICAL FIX: T+1 observation
+            obs = np.vstack([obs, obs[-1]])
+
             traj = Trajectory(
                 obs=obs,
                 acts=actions,
-                infos=np.array(infos, dtype=object),
+                infos=np.array([{} for _ in range(len(actions))], dtype=object),
                 terminal=True,
             )
 
             trajectories.append(traj)
-
-            print(f"Generated trajectory {traj_idx+1}/{self.demonstration_number}")
 
         return trajectories
 

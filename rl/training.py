@@ -87,7 +87,7 @@ def train(config: Optional[str] = typer.Option(None, "--config", "-c")):
     
     env_cfg = cfg["rl_env"]
     train_cfg = cfg["rl_training_params"]
-    run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S_rl")
     root = Path("results") / run_name
     model_dir = root / "models"
     log_dir = root / "logs" 
