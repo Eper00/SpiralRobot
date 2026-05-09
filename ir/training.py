@@ -11,7 +11,6 @@ import numpy as np
 import torch as th
 
 from imitation.algorithms import bc
-from imitation.data.types import Trajectory
 
 from rich.console import Console
 
@@ -48,14 +47,16 @@ def train(
 
     env_cfg = cfg["rl_env"]
     train_cfg = cfg["rl_training_params"]
-
+    ir_cfg=cfg["ir"]
     # ------------------------------------------------
     # dirs
     # ------------------------------------------------
     run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S_il")
     root = Path("results") / run_name
     model_dir = root / "models"
+    log_dir = root / "logs" 
     model_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------
     # env
@@ -70,7 +71,7 @@ def train(
     console.print("Generating demonstrations...")
 
     trajectories = env.generate_demonstrations()
-
+    env.save_demonstration_dataset()
 
     if len(trajectories) == 0:
         raise ValueError("No trajectories generated!")
@@ -81,13 +82,15 @@ def train(
     # BC trainer
     # ------------------------------------------------
     rng = np.random.default_rng(0)
-
+    train_cfg = cfg["ir"]
     bc_trainer = bc.BC(
         observation_space=env.observation_space,
         action_space=env.action_space,
         demonstrations=trajectories,
+        batch_size=train_cfg["BC_batch_size"],
         rng=rng,
         device="cuda" if th.cuda.is_available() else "cpu",
+        
     )
 
     # ------------------------------------------------
@@ -96,7 +99,7 @@ def train(
     console.print("Training BC policy...")
 
     bc_trainer.train(
-        n_epochs=train_cfg.get("n_epochs", 50),
+        n_epochs=train_cfg["BC_epochs"],
         progress_bar=True,
     )
 

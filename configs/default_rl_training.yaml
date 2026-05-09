@@ -4,7 +4,8 @@ rl_training:
     xml_file: "assets/simulation/tentacle.xml"
     simulation_length_seconds: 1
     time_between_steps_seconds: 0.02
-
+    pseudo_random_time: 3
+    future_horizon: 3
     # Actuator/tendon settings
     initial_actuator_position: [0.147, 0.25]
 
@@ -25,6 +26,7 @@ rl_training:
     # Fixed target (optional)
     fixed_target_position: null
 
+    demonstration_number: 100
   rl_training_params:
     # Environment setup
     num_envs: 10
@@ -61,4 +63,6 @@ rl_training:
     grid_size: 20
     space_limit: 0.2
   ir:
-    demostraion_number: 20
+   
+    BC_epochs: 1000
+    BC_batch_size: 128

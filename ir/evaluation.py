@@ -1,5 +1,5 @@
 """Behavior cloning trajectory evaluation + visualization."""
-
+import mujoco
 import time
 from pathlib import Path
 from typing import Optional
@@ -7,11 +7,22 @@ from typing import Optional
 import typer
 import yaml
 import numpy as np
+import torch as th
+import matplotlib.pyplot as plt
+
 from rich.console import Console
+
+from imitation.algorithms import bc
+from imitation.data.types import Trajectory
 
 from ir.expert import TentacleTargetFollowingClone
 from common.loaders import RLTrainingConfig
 
+from common.support import (
+    _get_tip_position,
+    _action_to_ctrl,
+    _read_dataset
+)
 
 console = Console()
 app = typer.Typer()
@@ -39,9 +50,8 @@ def load_config(path: Optional[str]) -> RLTrainingConfig:
 @app.command()
 def evaluate(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
-    num_trajectories: int = typer.Option(10),
-    save_dataset: bool = typer.Option(False),
-    dataset_path: str = typer.Option("bc_dataset.npz"),
+    model_path: str = typer.Option(..., "--model"),
+    num_trajectories: int = typer.Option(5),
     visualize: bool = typer.Option(True),
 ):
 
@@ -49,88 +59,142 @@ def evaluate(
     # config
     # -----------------------------------------------------
     cfg = load_config(config)
-    # overwrite demo count
-    cfg.ir.demostraion_number = num_trajectories
 
-    console.print("\n=== Behavior Cloning Evaluation ===")
-    console.print(f"Trajectories: {num_trajectories}")
+    console.print("\n=== BC POLICY EVALUATION ===")
 
     # -----------------------------------------------------
-    # clone env
+    # env
     # -----------------------------------------------------
-    clone = TentacleTargetFollowingClone(
+    env = TentacleTargetFollowingClone(
         config=cfg.rl_env
     )
 
-    all_states = []
-    all_actions = []
-
-    trajectory_lengths = []
-    workspace_points = []
-
     # -----------------------------------------------------
-    # generate trajectories
+    # dataset (for BC init compatibility)
     # -----------------------------------------------------
-    for i in range(num_trajectories):
+    rng = np.random.default_rng(0)
 
-        states =clone.demonstration_states
-        actions=clone.demonstration_actions
-        all_states.append(states)
-        all_actions.append(actions)
+    states, actions = _read_dataset(
+        "/home/tomi/karcsi/demonstration_dataset.npz"
+    )
 
-        trajectory_lengths.append(len(states))
+    demonstrations = []
 
-        workspace_points.append(states)
+    for i in range(len(states)):
 
-        console.print(
-            f"[{i+1}/{num_trajectories}] "
-            f"steps={len(states)} "
-            f"start={states[0]} "
-            f"end={states[-1]}"
+        demonstrations.append(
+            Trajectory(
+                obs=states[i],
+                acts=actions[i],
+                infos=np.array(
+                    [{} for _ in range(len(actions[i]))],
+                    dtype=object
+                ),
+                terminal=True,
+            )
         )
 
-    # -----------------------------------------------------
-    # concatenate
-    # -----------------------------------------------------
-    all_states = np.concatenate(all_states, axis=0)
-    all_actions = np.concatenate(all_actions, axis=0)
+    bc_trainer = bc.BC(
+        observation_space=env.observation_space,
+        action_space=env.action_space,
+        demonstrations=demonstrations,
+        rng=rng,
+        device="cuda" if th.cuda.is_available() else "cpu",
+    )
 
-    workspace_points = np.concatenate(workspace_points, axis=0)
+    # -----------------------------------------------------
+    # load model
+    # -----------------------------------------------------
+    console.print(f"Loading policy: {model_path}")
+
+    bc_trainer.policy.load_state_dict(
+        th.load(model_path, map_location=bc_trainer.policy.device)
+    )
+
+    policy = bc_trainer.policy
+    policy.eval()
 
     # -----------------------------------------------------
     # metrics
     # -----------------------------------------------------
-    mins = workspace_points.min(axis=0)
-    maxs = workspace_points.max(axis=0)
-    means = workspace_points.mean(axis=0)
-
-    console.print("\n=== DATASET STATS ===")
-    console.print(f"Total samples: {len(all_states)}")
-    console.print(f"Mean trajectory length: {np.mean(trajectory_lengths):.2f}")
-
-    console.print("\nWorkspace:")
-    console.print(f"X: {mins[0]:.4f} -> {maxs[0]:.4f}")
-    console.print(f"Y: {mins[1]:.4f} -> {maxs[1]:.4f}")
-    console.print(f"Z: {mins[2]:.4f} -> {maxs[2]:.4f}")
-
-    console.print("\nMean position:")
-    console.print(means)
+    final_distances = []
 
     # -----------------------------------------------------
-    # save dataset
+    # rollout evaluation
     # -----------------------------------------------------
-    if save_dataset:
+    for traj_idx in range(num_trajectories):
 
-        np.savez_compressed(
-            dataset_path,
-            states=all_states,
-            actions=all_actions,
+        obs= env.reset()
+        trajectory = []
+
+        for step in range(env._max_episode_steps):
+            # -----------------------------------------
+            # obs → tensor
+            # -----------------------------------------
+            obs_tensor = th.tensor(
+                obs,
+                dtype=th.float32,
+                device=bc_trainer.policy.device
+            ).unsqueeze(0)
+
+            # -----------------------------------------
+            # forward pass
+            # -----------------------------------------
+            with th.no_grad():
+
+                action_tensor = policy(obs_tensor)
+
+                if isinstance(action_tensor, tuple):
+                    action_tensor = action_tensor[0]
+
+            action = action_tensor.cpu().numpy()[0]
+            action = np.clip(action, -1, 1)
+
+            ctrl = _action_to_ctrl(
+                action,
+                env.actuator_low,
+                env.actuator_high
+            )
+
+            # -----------------------------------------
+            # simulate
+            # -----------------------------------------
+            for _ in range(env.frame_skip):
+                env.data.ctrl[:] = ctrl
+                mujoco.mj_step(env.model, env.data)
+
+            obs = env._get_obs()
+
+            tip = _get_tip_position(env.model, env.data)
+            trajectory.append(tip.copy())
+
+        # -------------------------------------------------
+        # metrics
+        # -------------------------------------------------
+        trajectory = np.array(trajectory)
+
+        final_tip = trajectory[-1]
+        target = env.target_position
+
+        final_distance = np.linalg.norm(final_tip - target)
+
+        final_distances.append(final_distance)
+
+        console.print(
+            f"[Trajectory {traj_idx}] "
+            f"Final distance: {final_distance:.4f}"
         )
 
-        console.print(f"\nSaved dataset: {dataset_path}")
+    # -----------------------------------------------------
+    # summary
+    # -----------------------------------------------------
+    final_distances = np.array(final_distances)
 
- 
-
+    console.print("\n=== SUMMARY ===")
+    console.print(f"Mean final distance: {final_distances.mean():.4f}")
+    console.print(f"Std final distance:  {final_distances.std():.4f}")
+    console.print(f"Min final distance:  {final_distances.min():.4f}")
+    console.print(f"Max final distance:  {final_distances.max():.4f}")
 # ---------------------------------------------------------
 # ENTRYPOINT
 # ---------------------------------------------------------

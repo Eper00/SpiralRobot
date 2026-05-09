@@ -42,26 +42,115 @@ def _get_tip_position(model, data) -> np.ndarray:
     )
     return data.site_xpos[tip_site_id].copy()
 
-
 def _read_dataset(dataset_path):
 
     data = np.load(dataset_path)
 
-    points = data["tips"]
+    states = data["states"]
+    actions = data["actions"]
+    print("States shape:", states.shape)
+    print("Actions shape:", actions.shape)
+    return states,actions
+def _get_targets_tips(states,max_trajectories):
+    num_traj = min(states.shape[0], max_trajectories)
+    for i in range(num_traj):
 
-    x = points[:, 0]
-    y = points[:, 1]
-    z = points[:, 2]
+        traj = states[i]
 
-    fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_subplot(111, projection="3d")
+        tips = traj[:, 0:3]
+        targets = traj[:, 3:6]
 
-    ax.scatter(x, y, z, s=2)
+    return targets,tips
+def visualize_dataset(states, actions, max_trajectories=10):
 
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
+    num_traj = min(states.shape[0], max_trajectories)
 
-    ax.set_title("Tentacle Workspace")
+    fig = plt.figure(figsize=(16, 8))
 
+    # ======================================================
+    # 1. TIP + TARGET TRAJECTORIES
+    # ======================================================
+    ax1 = fig.add_subplot(121, projection="3d")
+
+    for i in range(num_traj):
+
+        traj = states[i]
+
+        tips = traj[:, 0:3]
+        targets = traj[:, 3:6]
+
+        # tip trajectory
+        ax1.plot(
+            tips[:, 0],
+            tips[:, 1],
+            tips[:, 2],
+            linewidth=1.5,
+            alpha=0.7
+        )
+
+        # target trajectory (dashed)
+        ax1.plot(
+            targets[:, 0],
+            targets[:, 1],
+            targets[:, 2],
+            linestyle="dashed",
+            alpha=0.4
+        )
+
+        # start
+        ax1.scatter(
+            tips[0, 0],
+            tips[0, 1],
+            tips[0, 2],
+            c="green",
+            s=15
+        )
+
+        # end
+        ax1.scatter(
+            tips[-1, 0],
+            tips[-1, 1],
+            tips[-1, 2],
+            c="red",
+            s=15
+        )
+
+    ax1.set_title("Tip + Target Trajectories")
+    ax1.set_xlabel("X")
+    ax1.set_ylabel("Y")
+    ax1.set_zlabel("Z")
+
+    # ======================================================
+    # 2. ACTION FIELD
+    # ======================================================
+    ax2 = fig.add_subplot(122, projection="3d")
+
+    for i in range(num_traj):
+
+        traj = states[i]
+        acts = actions[i]
+
+        tips = traj[:-1, 0:3]
+
+        step = max(1, len(acts) // 40)
+        idx = np.arange(0, len(acts), step)
+
+        ax2.quiver(
+            tips[idx, 0],
+            tips[idx, 1],
+            tips[idx, 2],
+            acts[idx, 0],
+            acts[idx, 1],
+            acts[idx, 2],
+            length=0.03,
+            normalize=True,
+            alpha=0.5
+        )
+
+    ax2.set_title("Action Field (Control Directions)")
+    ax2.set_xlabel("X")
+    ax2.set_ylabel("Y")
+    ax2.set_zlabel("Z")
+
+    plt.tight_layout()
     plt.show()

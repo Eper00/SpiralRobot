@@ -12,9 +12,9 @@ class RLEnvironmentConfig(BaseModel):
     xml_file: str = "assets/simulation/tentacle.xml"
     simulation_length_seconds: float = 4.0
     time_between_steps_seconds: float = 0.04
-
+    pseudo_random_time: int =3
     initial_actuator_position: List[float] = [0.147, 0.25]
-
+    future_horizon: int=3
     reward_distance_scale: float = 4.0
     action_change_penalty_scale: float = 0.25
     control_penalty_scale: float = 0.1
@@ -28,7 +28,7 @@ class RLEnvironmentConfig(BaseModel):
 
     fixed_target_position: Optional[List[float]] = None
 
-
+    demonstration_number: int = 1
 # -------------------------
 # TRAINING PARAMS
 # -------------------------
@@ -72,8 +72,9 @@ class RLEvaluationConfig(BaseModel):
 # IR (imitation / dataset config)
 # -------------------------
 class IRConfig(BaseModel):
-    demostraion_number: int = 20
-
+   
+    BC_epochs: int=100
+    BC_batch_size: int=64
 
 # -------------------------
 # ROOT CONFIG
