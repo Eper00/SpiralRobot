@@ -17,7 +17,7 @@ from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 
 from rich.console import Console
-from environment import env_creator, TentacleTargetFollowingEnv
+from rl.environment import env_creator, TentacleTargetFollowingEnv
 from common.loaders import RLEnvironmentConfig
 
 

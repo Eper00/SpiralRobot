@@ -1,4 +1,4 @@
-path_xml_tentacle='//home/tomi/karcsi/assets/simulation/tentacle.xml'
+path_xml_tentacle='//home/tomi/SpiralRobot/assets/simulation/tentacle.xml'
 
 import numpy as np
 

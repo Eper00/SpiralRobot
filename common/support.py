@@ -154,3 +154,12 @@ def visualize_dataset(states, actions, max_trajectories=10):
 
     plt.tight_layout()
     plt.show()
+def _normalize_position(pos,workspace_center,workspace_scale) -> np.ndarray:
+    return (pos - workspace_center) / workspace_scale
+def _normalize_actuator_lengths(lengths,actuator_low,actuator_high) -> np.ndarray:
+        return (
+            2.0
+            * (lengths - actuator_low)
+            / (actuator_high - actuator_low)
+            - 1.0
+        )

@@ -9,7 +9,7 @@ import os
 from collections import deque
 from common.loaders import RLEnvironmentConfig
 from typing import  Optional, Dict, Any
-from common.support import _get_tip_position, _action_to_ctrl
+from common.support import _get_tip_position, _action_to_ctrl,_get_targets_tips,_read_dataset,_normalize_position,_normalize_actuator_lengths
 
 class TentacleTargetFollowingEnv(gym.Env):
 
@@ -144,18 +144,12 @@ class TentacleTargetFollowingEnv(gym.Env):
         self.workspace_scale = (
             self.target_bounds_max - self.target_bounds_min
         ) / 2.0
-      
-    def _normalize_position(self, pos: np.ndarray) -> np.ndarray:
-        return (pos - self.workspace_center) / self.workspace_scale
+        states,_=_read_dataset("/home/tomi/SpiralRobot/demonstration_dataset.npz")
+        self.targets,_=_get_targets_tips(states,self.config.demonstration_number)
 
 
-    def _normalize_actuator_lengths(self, lengths: np.ndarray) -> np.ndarray:
-        return (
-            2.0
-            * (lengths - self.actuator_low)
-            / (self.actuator_high - self.actuator_low)
-            - 1.0
-        )
+
+
     def _get_obs(self) -> np.ndarray:
         """Retrieves the stacked observation from the buffer."""
         assert len(self.obs_buffer) == self.num_frames, "Observation buffer not full!"
@@ -168,16 +162,16 @@ class TentacleTargetFollowingEnv(gym.Env):
         target_position = self.target_position.copy()
 
         # Normalize positions to roughly [-1, 1]
-        tip_position = self._normalize_position(tip_position)
-        target_position = self._normalize_position(target_position)
+        tip_position = _normalize_position(tip_position,self.workspace_center,self.workspace_scale)
+        target_position = _normalize_position(target_position,self.workspace_center,self.workspace_scale)
 
         obs_parts = [tip_position, target_position]
 
         if self.include_actuator_lengths_in_obs:
             actuator_lengths = self.data.actuator_length.copy().astype(np.float64)
 
-            actuator_lengths = self._normalize_actuator_lengths(
-                actuator_lengths
+            actuator_lengths = _normalize_actuator_lengths(
+                actuator_lengths,self.actuator_low,self.actuator_high
             )
 
             obs_parts.append(actuator_lengths)
@@ -194,7 +188,6 @@ class TentacleTargetFollowingEnv(gym.Env):
         ctrl =_action_to_ctrl(action,self.actuator_low,self.actuator_high)
         self.data.ctrl[:] = ctrl
 
-        print(self.target_position)
         self.data.ctrl[:] = ctrl
         # --- simulate ---
         for _ in range(self.frame_skip):
@@ -274,8 +267,7 @@ class TentacleTargetFollowingEnv(gym.Env):
         
         self.prev_action = 2 * ((0.19 - self.actuator_low) / (self.actuator_high - self.actuator_low))-1
         self.current_position = _get_tip_position(self.model,self.data)
-        self.target_position = self.targets[
-        self.np_random.integers(len(self.targets))].copy()
+        self.target_position = np.random.uniform(self.target_bounds_min,self.target_bounds_max,3)
 
         self.data.site_xpos[self.target_site_id] = self.target_position
 
