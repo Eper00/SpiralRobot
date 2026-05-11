@@ -14,7 +14,7 @@ from imitation.algorithms import bc
 
 from rich.console import Console
 
-from il.expert import TentacleTargetFollowingClone
+from il.environment import TentacleTargetFollowingIL
 from common.loaders import RLEnvironmentConfig
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def train(
     # ------------------------------------------------
     # env
     # ------------------------------------------------
-    env = TentacleTargetFollowingClone(
+    env = TentacleTargetFollowingIL(
         config=RLEnvironmentConfig(**env_cfg)
     )
 

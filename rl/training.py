@@ -17,7 +17,7 @@ from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 
 from rich.console import Console
-from rl.environment import env_creator, TentacleTargetFollowingEnv
+from rl.environment import env_creator, TentacleTargetFollowingRL
 from common.loaders import RLEnvironmentConfig
 
 
@@ -97,7 +97,7 @@ def train(config: Optional[str] = typer.Option(None, "--config", "-c")):
 
     # ENV
     train_env = make_vec(env_cfg, train_cfg["num_envs"])
-    eval_env = TentacleTargetFollowingEnv(
+    eval_env = TentacleTargetFollowingRL(
         config=RLEnvironmentConfig(**env_cfg),
         render_mode=cfg["rl_evaluation"]["render_mode"],
     )

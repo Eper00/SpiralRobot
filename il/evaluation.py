@@ -15,7 +15,7 @@ from rich.console import Console
 from imitation.algorithms import bc
 from imitation.data.types import Trajectory
 
-from il.expert import TentacleTargetFollowingClone
+from il.environment import TentacleTargetFollowingIL
 from common.loaders import RLTrainingConfig
 
 from common.support import (
@@ -65,7 +65,7 @@ def evaluate(
     # -----------------------------------------------------
     # env
     # -----------------------------------------------------
-    env = TentacleTargetFollowingClone(
+    env = TentacleTargetFollowingIL(
         config=cfg.rl_env
     )
 

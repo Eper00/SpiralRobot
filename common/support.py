@@ -34,13 +34,15 @@ def quat_angle(quat)->float:
     w = np.clip(np.abs(quat[0]), -1.0, 1.0)
 
     return 2.0 * np.arccos(w)
-def _get_tip_position(model, data) -> np.ndarray:
-    tip_site_id = mujoco.mj_name2id(
+def _get_tip_position(model, data, site_name="tip_center") -> np.ndarray:
+
+    site_id = mujoco.mj_name2id(
         model,
         mujoco.mjtObj.mjOBJ_SITE,
-        "tip_center"
+        site_name
     )
-    return data.site_xpos[tip_site_id].copy()
+
+    return data.site_xpos[site_id].copy()
 
 def _read_dataset(dataset_path):
 
@@ -51,16 +53,7 @@ def _read_dataset(dataset_path):
     print("States shape:", states.shape)
     print("Actions shape:", actions.shape)
     return states,actions
-def _get_targets_tips(states,max_trajectories):
-    num_traj = min(states.shape[0], max_trajectories)
-    for i in range(num_traj):
 
-        traj = states[i]
-
-        tips = traj[:, 0:3]
-        targets = traj[:, 3:6]
-
-    return targets,tips
 def visualize_dataset(states, actions, max_trajectories=10):
 
     num_traj = min(states.shape[0], max_trajectories)
@@ -163,3 +156,17 @@ def _normalize_actuator_lengths(lengths,actuator_low,actuator_high) -> np.ndarra
             / (actuator_high - actuator_low)
             - 1.0
         )
+def reward_function(tip,target,action,max_distance,reward_distance_scale):
+    dist = np.linalg.norm(
+            tip - target
+        )
+
+    normalized_dist = dist / max_distance
+
+    normalized_dist = np.clip(
+            normalized_dist,
+            0.0,
+            1.0
+        )
+    return np.exp(-reward_distance_scale * normalized_dist)
+

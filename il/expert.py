@@ -1,396 +1,95 @@
-import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
-import os
-import mujoco
-
-from common.loaders import RLTrainingConfig
-from common.support import _get_tip_position,_action_to_ctrl,_read_dataset,_get_targets_tips,_normalize_position,_normalize_actuator_lengths
-
-
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa
-from typing import Tuple, Dict, Any, Optional, Union
 from imitation.data.types import Trajectory
-class TentacleTargetFollowingClone(gym.Env):
-    def __init__(
-        self,
-        config: Optional[RLTrainingConfig] = None,
-        render_mode: str = None,
-    ):
-        self.config = config
-        self.render_mode = render_mode
+from common.support import _get_tip_position,_normalize_position,_normalize_actuator_lengths
+import copy
+class Expert:
 
-        # -------------------------
-        # load xml
-        # -------------------------
-        xml_file = "../assets/simulation/tentacle.xml"
-        if not os.path.exists(xml_file):
-            script_dir = os.path.dirname(__file__)
-            xml_file = os.path.join(script_dir, xml_file)
+    def __init__(self, env):
+        self.env = copy.deepcopy(env)
+    def policy(self):
+        return np.random.uniform(-1,1,3)
 
-        self.model = mujoco.MjModel.from_xml_path(xml_file)
-        self.data = mujoco.MjData(self.model)
+    def rollout_episode(self):
 
-        # -------------------------
-        # config
-        # -------------------------
-        self.tip_site_name = self.config.tip_site_name
-        self.include_actuator_lengths_in_obs = (
-            self.config.include_actuator_lengths_in_obs
-        )
-        self.action_space = spaces.Box(
-            low= -1,     
-            high=1,   
-            shape=(3,),
-            dtype=np.float32,
-        )
-        self.num_frames = self.config.num_frames
-
-        self.action_dim = 3
-        self.demonstration_number = self.config.demonstration_number
-        single_frame_obs_dim = 6
-        if self.include_actuator_lengths_in_obs:
-            single_frame_obs_dim += 3
-
-        self.observation_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(single_frame_obs_dim,),
-            dtype=np.float32,
-        )
-        # -------------------------
-        # actuator range
-        # -------------------------
-        self.actuator_low = self.model.actuator_ctrlrange[:, 0]
-        self.actuator_high = self.model.actuator_ctrlrange[:, 1]
-
-        self.target_bounds_min = np.array(self.config.target_bounds_min)
-        self.target_bounds_max = np.array(self.config.target_bounds_max)
-
-        self.workspace_center = (self.target_bounds_min + self.target_bounds_max) / 2
-        self.workspace_scale = (self.target_bounds_max - self.target_bounds_min) / 2
-
-        
-        # -------------------------
-        # storage
-        # -------------------------
-        self.demonstration_states = []
-        self.demonstration_actions = []
-
-        self.tip_site_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SITE, self.tip_site_name
-        )
-        self.simulation_length_seconds = self.config.simulation_length_seconds
-        self.time_between_steps_seconds = self.config.time_between_steps_seconds
-        self.timestep = self.model.opt.timestep
-
-        # Calculate frame_skip based on desired time between steps
-        self.frame_skip = max(1, round(self.time_between_steps_seconds / self.timestep))
-        self.time_per_step = self.frame_skip * self.timestep
-
-        # Calculate max_episode_steps based on simulation length and actual time per step
-        self._max_episode_steps = int(
-            self.simulation_length_seconds / self.time_per_step
-        )
-        self.pseudo_random_time=self.config.pseudo_random_time
-        self.future_horizon = self.config.future_horizon
-    def reset(self, *, seed=None, options=None):
-        super().reset(seed=seed)
-
-        mujoco.mj_resetData(self.model, self.data)
-
-        self.data.qvel[:] = 0
-        self.data.ctrl[:] = 0.19
-
-        mujoco.mj_forward(self.model, self.data)
-
-        # ---------------------------------
-        # warm-up random dynamics
-        # ---------------------------------
-        random_action = np.random.uniform(-1, 1, 3)
-
-        random_control = _action_to_ctrl(
-            random_action,
-            self.actuator_low,
-            self.actuator_high
-        )
-
-        self.data.ctrl[:] = random_control
-
-        for _ in range(self.pseudo_random_time):
-            mujoco.mj_step(self.model, self.data)
-
-        mujoco.mj_forward(self.model, self.data)
-
-        # ---------------------------------
-        # initial tip
-        # ---------------------------------
-        self.tip_initial = _get_tip_position(self.model, self.data)
-
-        # ---------------------------------
-        # rollout to define local horizon target
-        # ---------------------------------
-        tip = self.tip_initial.copy()
-
-        for _ in range(self.future_horizon):
-
-            action = np.random.uniform(-1, 1, 3)
-
-            ctrl = _action_to_ctrl(
-                action,
-                self.actuator_low,
-                self.actuator_high
-            )
-
-            self.data.ctrl[:] = ctrl
-
-            for _ in range(self.frame_skip):
-                mujoco.mj_step(self.model, self.data)
-
-            mujoco.mj_forward(self.model, self.data)
-
-            tip = _get_tip_position(self.model, self.data)
-
-        # ---------------------------------
-        # LOCAL GOAL (future state)
-        # ---------------------------------
-        self.target_position = tip.copy()
-
-        return self._get_obs()
-    def _get_obs(self):
-
-        tip = _get_tip_position(self.model, self.data)
-        target = self.target_position
-
-        tip = _normalize_position(tip, self.workspace_center, self.workspace_scale)
-        target = _normalize_position(target, self.workspace_center, self.workspace_scale)
-
-        actuator = self.data.actuator_length.copy()
-
-        if self.include_actuator_lengths_in_obs:
-            actuator = _normalize_actuator_lengths(
-                actuator,
-                self.actuator_low,
-                self.actuator_high
-            )
-
-            return np.concatenate([tip, target, actuator]).astype(np.float32)
-
-        return np.concatenate([tip, target]).astype(np.float32)
-
-    def _get_trajectory(self):
-
-        mujoco.mj_resetData(self.model, self.data)
-
-        self.data.qvel[:] = 0
-        self.data.ctrl[:] = 0.19
+        self.env._base_reset()
 
         tips = []
         actions = []
-        actuator_lengths_list = []
+        actuators = []
 
-        # -----------------------------
-        # rollout
-        # -----------------------------
-        for _ in range(self._max_episode_steps):
+        action = self.policy()
+        done = False
 
-            tip = _get_tip_position(
-                self.model,
-                self.data
-            )
-
-            actuator_lengths_list.append(
-                self.data.actuator_length.copy()
-            )
-
-            action = np.random.uniform(-1, 1, 3)
-
+        while not done:
+            tips.append(_get_tip_position(self.env.model, self.env.data).copy())
             actions.append(action.copy())
-            tips.append(tip.copy())
+            if self.env.include_actuator_lengths_in_obs:
+                actuators.append(self.env.data.actuator_length.copy())
+            ok = self.env._simulate(action)
+            if not ok:
+                break
 
-            ctrl = _action_to_ctrl(
-                action,
-                self.actuator_low,
-                self.actuator_high
-            )
+            done = self.env._elapsed_steps >= self.env._max_episode_steps
 
-            for _ in range(self.frame_skip):
+        final_tip = _get_tip_position(self.env.model, self.env.data).copy()
+        tips.append(final_tip)
 
-                self.data.ctrl[:] = ctrl
-                mujoco.mj_step(self.model, self.data)
+        if self.env.include_actuator_lengths_in_obs:
+            actuators.append(self.env.data.actuator_length.copy())
 
-        tips = np.array(tips, dtype=np.float32)
-        actions = np.array(actions, dtype=np.float32)
+        target = final_tip.copy()
+        obs_array = self.build_il_obs_sequence(tips, target, actuators)
+        
+        return obs_array, np.array(actions, dtype=np.float32),target.copy()
+    def build_il_obs_sequence(self, tips, target, actuators=None):
 
-        states = []
+        target_norm = _normalize_position(
+            target,
+            self.env.workspace_center,
+            self.env.workspace_scale
+        )
 
-       
+        obs_seq = []
 
         for i in range(len(tips)):
 
-            future_idx = min(
-                i + self.future_horizon,
-                len(tips) - 1
-            )
-
-            target = tips[future_idx]
-
-            obs_parts = [
+            tip_n = _normalize_position(
                 tips[i],
-                target,
-            ]
-
-            if self.include_actuator_lengths_in_obs:
-
-                obs_parts.append(
-                    actuator_lengths_list[i]
-                )
-
-            states.append(
-                np.concatenate(obs_parts).astype(np.float32)
+                self.env.workspace_center,
+                self.env.workspace_scale
             )
 
-        states = np.array(states, dtype=np.float32)
+            obs_parts = [tip_n, target_norm]
 
-        # T+1 requirement
-        states = np.vstack([
-            states,
-            states[-1]
-        ])
+            if actuators is not None:
+                actuator_n = _normalize_actuator_lengths(
+                    actuators[i],
+                    self.env.actuator_low,
+                    self.env.actuator_high,
+                )
+                obs_parts.append(actuator_n)
 
-        return states, actions
+            obs_seq.append(np.concatenate(obs_parts).astype(np.float32))
 
-    def generate_demonstrations(self):
+        return np.array(obs_seq, dtype=np.float32)
+    def create_demonstrations(self, num_episodes=3):
 
         trajectories = []
 
-        all_states = []
-        all_actions = []
+        for _ in range(num_episodes):
 
-        for traj_idx in range(self.demonstration_number):
+            obs_list, act_list,target = self.rollout_episode()
+           
+            if len(obs_list) < 2:
+                continue
 
-            # -----------------------------------------
-            # generate single trajectory
-            # -----------------------------------------
-            states, actions = self._get_trajectory()
-
-            # -----------------------------------------
-            # BC trajectory object
-            # IMPORTANT:
-            # len(obs) == len(actions) + 1
-            # -----------------------------------------
-            traj = Trajectory(
-                obs=states,
-                acts=actions,
-                infos=np.array(
-                    [{} for _ in range(len(actions))],
-                    dtype=object
-                ),
-                terminal=True,
+            trajectories.append(
+                Trajectory(
+                    obs=np.array(obs_list, dtype=np.float32),
+                    acts=np.array(act_list, dtype=np.float32),
+                    infos=None,
+                    terminal=True,
+                )
             )
-
-            trajectories.append(traj)
-
-            # -----------------------------------------
-            # save for visualization
-            # -----------------------------------------
-            all_states.append(states)
-            all_actions.append(actions)
-
-        # ---------------------------------------------
-        # store all demonstrations
-        # ---------------------------------------------
-        self.demonstration_states = np.array(
-            all_states,
-            dtype=np.float32
-        )
-
-        self.demonstration_actions = np.array(
-            all_actions,
-            dtype=np.float32
-        )
-
-        print(
-            "Generated demonstrations:"
-        )
-
-        print(
-            "States:",
-            self.demonstration_states.shape
-        )
-
-        print(
-            "Actions:",
-            self.demonstration_actions.shape
-        )
 
         return trajectories
-
-    def visualize_actions(self):
-
-        fig = plt.figure(figsize=(12, 10))
-        ax = fig.add_subplot(111, projection='3d')
-
-        for states, actions in zip(
-            self.demonstration_states,
-            self.demonstration_actions
-        ):
-
-            step = max(1, len(actions) // 50)
-
-            idx = np.arange(0, len(actions), step)
-
-            ax.quiver(
-                states[idx, 0],
-                states[idx, 1],
-                states[idx, 2],
-                actions[idx, 0],
-                actions[idx, 1],
-                actions[idx, 2],
-                length=0.03,
-                normalize=True,
-                alpha=0.5
-            )
-     
-        ax.set_title("All Demonstration Actions")
-
-        plt.show()
-    def save_demonstration_dataset(
-        self,
-        save_path="demonstration_dataset.npz"
-    ):
-
-        states = np.array(self.demonstration_states, dtype=np.float32)
-        actions = np.array(self.demonstration_actions, dtype=np.float32)
-
-        np.savez_compressed(
-            save_path,
-            states=states,
-            actions=actions,
-        )
-
-        print(f"Saved demonstration dataset to: {save_path}")
-        print(f"States shape: {states.shape}")
-        print(f"Actions shape: {actions.shape}")
-    def render(self) -> Optional[Union[np.ndarray, None]]:
-        if self.render_mode == "rgb_array":
-            if self.renderer is None:
-                raise RuntimeError(
-                    "Renderer not initialized for rgb_array render mode."
-                )
-            self.renderer.update_scene(self.data, camera=self.camera_names[0])
-            return self.renderer.render()
-        elif self.render_mode == "human":
-            self.data.site_xpos[self.target_site_id] = self.target_position.copy()
-            if self.viewer is None:
-                self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
-            if self.viewer and self.viewer.is_running():
-                self.viewer.sync()
-
-
-def env_creator(env_config: Dict[str, Any]) -> TentacleTargetFollowingClone:
-    """Creator function for RLlib registration."""
-    config = RLTrainingConfig(**env_config)
-    render_mode = env_config.get("render_mode", None)
-    return TentacleTargetFollowingClone(config=config, render_mode=render_mode)

@@ -10,7 +10,7 @@ import numpy as np
 from stable_baselines3 import PPO
 from rich.console import Console
 
-from rl.environment import TentacleTargetFollowingEnv
+from rl.environment import TentacleTargetFollowingRL
 from common.loaders import  RLTrainingConfig
 
 console = Console()
@@ -71,7 +71,7 @@ def evaluate(
     # --------------------
     # ENV
     # --------------------
-    env = TentacleTargetFollowingEnv(
+    env = TentacleTargetFollowingRL(
         config=cfg.rl_env,
         render_mode=cfg.rl_evaluation.render_mode,
     )
