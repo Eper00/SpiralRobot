@@ -5,7 +5,8 @@ from common.support import _action_to_ctrl,_get_tip_position,_normalize_position
 from mujoco import viewer
 import numpy as np
 import time
-
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.evaluation import evaluate_policy
 # -------------------------
 # CONFIG + ENV
 # -------------------------
@@ -33,7 +34,7 @@ k = 0
 
 with viewer.launch_passive(model, data) as v:
 
-    while v.is_running() and k < 17:
+    while v.is_running() and k < 8:
         expert_action = act_list[k]
          # current observation
         obs= env._get_current_raw_obs()

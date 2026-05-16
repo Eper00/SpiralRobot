@@ -9,7 +9,7 @@ import os
 from collections import deque
 from common.loaders import RLEnvironmentConfig
 from typing import  Optional, Dict, Any
-from common.support import _get_tip_position,reward_function
+from common.support import _get_tip_position, _normalize_actuator_lengths
 from common.base_class import TentacleBaseEnv
 
 class TentacleTargetFollowingRL(TentacleBaseEnv):
@@ -38,14 +38,16 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
     def _compute_step(self,action):
         # Smooth normalized reward
         tip=_get_tip_position(self.model,self.data)
-        reward =reward_function(tip,self.target_position,action,self.max_distance,self.reward_distance_scale)
+        target=self.target_position
+        actuator_lengths = self.data.actuator_length.copy()
+        reward =self.reward_function(tip,target,actuator_lengths,action)
         truncated = (
             self._elapsed_steps >= self._max_episode_steps
         )
 
         obs = self._get_current_raw_obs()
         self.obs_buffer.append(obs)
-
+        self.prev_action=action.copy()
         return (
             self._get_obs(),
             float(reward),
@@ -53,9 +55,31 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
             truncated,
             self._get_info(),
         )
-   
-    def reset(self, *, seed=None, options=None):
+    
+    def reward_function(self, tip, target, actuator_lengths, action):
+        dist = np.linalg.norm(
+                tip - target
+            )
 
+        normalized_dist = dist / self.max_distance
+
+        normalized_dist = np.clip(
+                normalized_dist,
+                0.0,
+                1.0
+            )
+
+
+        distance_reward =  np.exp(-self.reward_distance_scale * normalized_dist)
+        if (self.prev_action is not None):
+            action_change = action - self.prev_action
+            input_change_penalty = self.action_change_penalty_scale * np.linalg.norm(action_change)/3
+        else:
+            input_change_penalty = 0.0
+       
+        return distance_reward - input_change_penalty
+    def reset(self, *, seed=None, options=None):
+        self.prev_action=None
         super().reset(seed=seed)
 
         self._base_reset()

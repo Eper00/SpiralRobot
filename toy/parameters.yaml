@@ -1,0 +1,12 @@
+# config.yaml
+
+env:
+  env_id: CartPole-v1
+  n_training_envs: 10
+  n_eval_envs: 100
+  seed: 0
+ 
+train:
+  total_timesteps: 200_000
+  eval_freq: 1000
+  n_eval_episodes: 50
