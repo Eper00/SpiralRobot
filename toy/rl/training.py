@@ -4,8 +4,13 @@ from pathlib import Path
 from datetime import datetime
 
 from stable_baselines3 import PPO
+from imitation.algorithms.bc import BC
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.save_util import load_from_zip_file
+import torch
+
+
 
 app = typer.Typer()
 
@@ -72,19 +77,22 @@ def train(config_path: str):
     model = PPO(
         "MlpPolicy",
         train_env,
+        policy_kwargs=dict(net_arch=[32, 32]),
         tensorboard_log=str(log_dir),
         verbose=1,
         seed=seed,
     )
 
-    # -------------------------
-    # training
-    # -------------------------
+    state_dict = torch.load("rl/bc_policy.pt", map_location="cpu")
+
+    # súlyok átmásolása
+    model.policy.load_state_dict(state_dict, strict=False)
+
+    # RL training
     model.learn(
         total_timesteps=total_timesteps,
         callback=eval_callback,
     )
-
     # -------------------------
     # save final model
     # -------------------------
