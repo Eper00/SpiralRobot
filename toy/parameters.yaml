@@ -1,12 +1,22 @@
-# config.yaml
-
 env:
-  env_id: CartPole-v1
-  n_training_envs: 10
-  n_eval_envs: 100
+  env_id: MountainCar-v0
+  n_training_envs: 1
+  n_eval_envs: 10
   seed: 0
- 
-train:
-  total_timesteps: 200_000
+  warm_start: True
+
+policy:
+  net_arch: [32, 32]
+  activation_fn: tanh
+  learning_rate: "3e-4"
+
+bc:
+  n_expert_episodes: 100
+  n_epochs: 5
+  rollout_episodes: 5
+
+rl:
+  total_timesteps: 200000
   eval_freq: 1000
   n_eval_episodes: 50
+  bc_path: "/home/tomi/SpiralRobot/toy/results/run_20260522_113357_bc_MountainCar-v0/models/bc_policy.pt"
