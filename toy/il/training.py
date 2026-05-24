@@ -15,6 +15,8 @@ import numpy as np
 import torch
 from stable_baselines3.common.policies import ActorCriticPolicy
 from imitation.util import logger as imit_logger
+from stable_baselines3 import PPO
+
 app = typer.Typer()
 def load_config(path: str):
     with open(path, "r") as f:
@@ -37,6 +39,8 @@ def train(config_path: str):
     n_envs = env_cfg["n_training_envs"]
     seed = env_cfg["seed"]
     bc_cfg = cfg["bc"]
+    external_model = bc_cfg["external_model"]
+    internal_path= bc_cfg["internal_path"]
     n_expert_episodes = bc_cfg["n_expert_episodes"]
     n_epochs = bc_cfg["n_epochs"]
     n_eval_envs = env_cfg["n_eval_envs"]
@@ -65,24 +69,36 @@ def train(config_path: str):
     # -------------------------
     # env
     # -------------------------
-    env = make_vec_env(
+    
+
+    # -------------------------
+    # load expert
+    # -------------------------
+    if external_model:
+        env = make_vec_env(
         "seals:seals/"+env_id,
         n_envs=n_envs,
         rng=rng,
         post_wrappers=[
             lambda env, _: RolloutInfoWrapper(env)
         ]
-    )
-
-    # -------------------------
-    # load expert
-    # -------------------------
-    expert = load_policy(
-        "ppo-huggingface",
-        organization="HumanCompatibleAI",
-        env_name="seals-"+env_id,
-        venv=env,
-    )
+        )
+        expert = load_policy(
+            "ppo-huggingface",
+            organization="HumanCompatibleAI",
+            env_name="seals-"+env_id,
+            venv=env,
+        )
+    else:
+        env=make_vec_env(
+        env_id,
+        n_envs=n_envs,
+        rng=rng,
+        post_wrappers=[
+            lambda env, _: RolloutInfoWrapper(env)
+        ]
+        )
+        expert = PPO.load(internal_path, env=env)
 
     # -------------------------
     # collect demonstrations

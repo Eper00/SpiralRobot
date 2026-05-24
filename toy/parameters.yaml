@@ -1,22 +1,24 @@
 env:
-  env_id: MountainCar-v0
+  env_id: Hopper-v4
   n_training_envs: 1
   n_eval_envs: 10
   seed: 0
   warm_start: True
 
 policy:
-  net_arch: [32, 32]
+  net_arch: [256, 256]
   activation_fn: tanh
-  learning_rate: "3e-4"
+  learning_rate: "0.0003904770450788824"
 
 bc:
   n_expert_episodes: 100
-  n_epochs: 5
+  n_epochs: 30
   rollout_episodes: 5
+  internal_path: "/home/tomi/SpiralRobot/toy/results/run_20260523_194103_rl_Hopper-v4/models/best/best_model.zip"
+  external_model: False
 
 rl:
   total_timesteps: 200000
   eval_freq: 1000
-  n_eval_episodes: 50
-  bc_path: "/home/tomi/SpiralRobot/toy/results/run_20260522_113357_bc_MountainCar-v0/models/bc_policy.pt"
+  n_eval_episodes: 150
+  bc_path: "/home/tomi/SpiralRobot/toy/results/run_20260524_104840_bc_Hopper-v4/models/bc_policy.pt"
