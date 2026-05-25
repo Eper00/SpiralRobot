@@ -5,10 +5,8 @@ from typing import Tuple, Dict, Any, Optional, Union
 import mujoco.viewer
 import os
 from collections import deque
-from common.loaders import RLEnvironmentConfig
 from typing import  Optional, Dict, Any
-from common.support import _get_tip_position, _action_to_ctrl,_normalize_position,_normalize_actuator_lengths,reward_function
-from common.loaders import RLTrainingConfig
+from common.support import _get_tip_position, _action_to_ctrl,_normalize_position,_normalize_actuator_lengths,load_config
 
 class TentacleBaseEnv(gym.Env):
 
@@ -20,15 +18,15 @@ class TentacleBaseEnv(gym.Env):
     def __init__(self, config, render_mode=None):
 
         super().__init__()
-
-        self.config = config
+        self.config = load_config(config) if isinstance(config, str) else config
+        self.config = self.config['rl_env']
         self.render_mode = render_mode
-        self.num_frames = self.config.num_frames
+        self.num_frames = self.config['num_frames']
         self.obs_buffer = deque(maxlen=self.num_frames)
         # -------------------------
         # XML
         # -------------------------
-        xml_file = "../assets/simulation/tentacle.xml"
+        xml_file = self.config['xml_file']
 
         if not os.path.exists(xml_file):
             script_dir = os.path.dirname(__file__)
@@ -40,16 +38,16 @@ class TentacleBaseEnv(gym.Env):
         # -------------------------
         # Config
         # -------------------------
-        self.tip_site_name = config.tip_site_name
+        self.tip_site_name = self.config['tip_site_name']
 
         self.include_actuator_lengths_in_obs = (
-            config.include_actuator_lengths_in_obs
+            self.config['include_actuator_lengths_in_obs']
         )
 
-        self.num_frames = config.num_frames
+        self.num_frames = self.config['num_frames']
 
-        self.target_bounds_min = np.array(config.target_bounds_min)
-        self.target_bounds_max = np.array(config.target_bounds_max)
+        self.target_bounds_min = np.array(self.config['target_bounds_min'])
+        self.target_bounds_max = np.array(self.config['target_bounds_max'])
 
         self.workspace_center = (
             self.target_bounds_min + self.target_bounds_max
@@ -58,23 +56,24 @@ class TentacleBaseEnv(gym.Env):
         self.workspace_scale = (
             self.target_bounds_max - self.target_bounds_min
         ) / 2
-
         # -------------------------
         # Mujoco timing
         # -------------------------
         self.simulation_length_seconds = (
-            config.simulation_length_seconds
+            self.config['simulation_length_seconds']
         )
         self.max_distance = np.linalg.norm(
         self.target_bounds_max - self.target_bounds_min
         )
         self.reward_distance_scale = (
-        config.reward_distance_scale
+        self.config['reward_distance_scale']
     )
         self.time_between_steps_seconds = (
-            config.time_between_steps_seconds
+            self.config['time_between_steps_seconds']
         )
-
+        self.action_change_penalty_scale=(
+            self.config['action_change_penalty_scale']
+        )
         self.timestep = self.model.opt.timestep
 
         self.frame_skip = max(
@@ -96,18 +95,21 @@ class TentacleBaseEnv(gym.Env):
         # -------------------------
         # Spaces
         # -------------------------
+        self.actuator_dim = self.model.nu 
+        self.target_dim= len(self.target_bounds_min)
+        self.tip_dim=2
         self.action_space = spaces.Box(
             low=-1,
             high=1,
-            shape=(3,),
+            shape=(self.actuator_dim,),
             dtype=np.float32,
         )
-
-        self.action_dim = 3
+        
 
         self.actuator_low = self.model.actuator_ctrlrange[:, 0]
         self.actuator_high = self.model.actuator_ctrlrange[:, 1]
-
+        self.cable_min= np.array(self.config['actuator_limits'])[:, 0]
+        self.cable_max= np.array(self.config['actuator_limits'])[:, 1]
         # -------------------------
         # Sites
         # -------------------------
@@ -126,7 +128,7 @@ class TentacleBaseEnv(gym.Env):
         # -------------------------
         # State
         # -------------------------
-        self.target_position = np.zeros(3)
+        self.target_position = np.zeros(self.target_dim)
 
         self._elapsed_steps = 0
 
@@ -136,10 +138,10 @@ class TentacleBaseEnv(gym.Env):
         # -------------------------
         # Observation dims
         # -------------------------
-        self.single_frame_obs_dim = 6
-        
+        self.single_frame_obs_dim = self.tip_dim + self.target_dim
+        self.prev_action=None
         if self.include_actuator_lengths_in_obs:
-            self.single_frame_obs_dim += 3
+            self.single_frame_obs_dim += self.actuator_dim
         stacked_obs_shape = (self.num_frames * self.single_frame_obs_dim,)
         self.observation_space = spaces.Box(
             low=-1.0,
@@ -155,13 +157,9 @@ class TentacleBaseEnv(gym.Env):
 
     def _get_current_raw_obs(self):
 
-        tip = _get_tip_position(
-            self.model,
-            self.data,
-        )
 
+        tip = _get_tip_position(self.model, self.data)[1:3]
         target = self.target_position.copy()
-
         tip = _normalize_position(
             tip,
             self.workspace_center,
@@ -173,20 +171,21 @@ class TentacleBaseEnv(gym.Env):
             self.workspace_center,
             self.workspace_scale,
         )
-
+        
         obs_parts = [tip, target]
-
         if self.include_actuator_lengths_in_obs:
 
             actuator = self.data.actuator_length.copy()
 
             actuator = _normalize_actuator_lengths(
                 actuator,
-                self.actuator_low,
-                self.actuator_high,
+                self.cable_min,
+                self.cable_max,
             )
 
             obs_parts.append(actuator)
+   
+
 
         return np.concatenate(obs_parts).astype(np.float32)
     def _base_reset(self):
@@ -196,17 +195,17 @@ class TentacleBaseEnv(gym.Env):
         self._elapsed_steps = 0
 
         self.data.qvel[:] = 0
-        self.data.ctrl[:] = 0.19
+        self.data.ctrl[:] = 0.
 
         self.target_position = np.random.uniform(
             self.target_bounds_min,
             self.target_bounds_max,
-            3,
+            self.target_dim,
         )
 
-        self.data.site_xpos[
-            self.target_site_id
-        ] = self.target_position
+        self.data.site_xpos[self.target_site_id] = np.array(
+        [0.0, self.target_position[0], self.target_position[1]]
+    )
 
         mujoco.mj_forward(self.model, self.data)
     def _simulate(self, action):
@@ -246,7 +245,7 @@ class TentacleBaseEnv(gym.Env):
             self.renderer.update_scene(self.data, camera=self.camera_names[0])
             return self.renderer.render()
         elif self.render_mode == "human":
-            self.data.site_xpos[self.target_site_id] = self.target_position.copy()
+            self.data.site_xpos[self.target_site_id] = [0.0, self.target_position[0], self.target_position[1]]
             if self.viewer is None:
                 self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
             if self.viewer and self.viewer.is_running():
@@ -275,6 +274,6 @@ class TentacleBaseEnv(gym.Env):
             )
 def env_creator(env_config: Dict[str, Any]) -> TentacleBaseEnv:
     """Creator function for RLlib registration."""
-    config = RLTrainingConfig(**env_config)
+    config = load_config(env_config.get("config_path")) if "config_path" in env_config else env_config
     render_mode = env_config.get("render_mode", None)
     return TentacleBaseEnv(config=config, render_mode=render_mode)

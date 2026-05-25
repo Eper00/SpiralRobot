@@ -7,18 +7,14 @@ from typing import Tuple, Dict, Any, Optional, Union
 import mujoco.viewer
 import os
 from collections import deque
-from common.loaders import RLEnvironmentConfig
 from typing import  Optional, Dict, Any
-from common.support import _get_tip_position, _normalize_actuator_lengths
+from common.support import _get_tip_position, load_config
 from common.base_class import TentacleBaseEnv
 
 class TentacleTargetFollowingRL(TentacleBaseEnv):
-
-
-
     def __init__(
         self,
-        config: Optional[RLEnvironmentConfig] = None,
+        config: Dict[str, Any]=None,
         render_mode: str = None,
     ):
         super().__init__(config, render_mode)
@@ -37,7 +33,7 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
             return self.fail_step()
     def _compute_step(self,action):
         # Smooth normalized reward
-        tip=_get_tip_position(self.model,self.data)
+        tip = _get_tip_position(self.model, self.data)[1:3]
         target=self.target_position
         actuator_lengths = self.data.actuator_length.copy()
         reward =self.reward_function(tip,target,actuator_lengths,action)
@@ -98,6 +94,6 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
     
 def env_creator(env_config: Dict[str, Any]) -> TentacleTargetFollowingRL:
     """Creator function for RLlib registration."""
-    config = RLEnvironmentConfig(**env_config)
+    config = load_config(env_config.get("config_path")) if "config_path" in env_config else env_config
     render_mode = env_config.get("render_mode", None)
     return TentacleTargetFollowingRL(config=config, render_mode=render_mode)

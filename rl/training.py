@@ -15,25 +15,15 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
-
+from common.support import load_config
 from rich.console import Console
 from rl.environment import env_creator, TentacleTargetFollowingRL
-from common.loaders import RLEnvironmentConfig
 
 
 logger = logging.getLogger(__name__)
 console = Console()
 app = typer.Typer()
 
-
-# ----------------------------
-# YAML LOADER
-# ----------------------------
-def load_config(path: Optional[str]) -> dict:
-    if path is None:
-        return {}
-    with open(path, "r") as f:
-        return yaml.safe_load(f)["rl_training"]
 
 
 def make_env(env_cfg, rank):
@@ -82,10 +72,7 @@ def make_callbacks(cfg, eval_env, model_dir, log_dir):
 
 @app.command()
 def train(config: Optional[str] = typer.Option(None, "--config", "-c")):
-
     cfg = load_config(config)
-    
-    env_cfg = cfg["rl_env"]
     train_cfg = cfg["rl_training_params"]
     run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S_rl")
     root = Path("results") / run_name
@@ -96,19 +83,15 @@ def train(config: Optional[str] = typer.Option(None, "--config", "-c")):
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # ENV
-    train_env = make_vec(env_cfg, train_cfg["num_envs"])
-    eval_env = TentacleTargetFollowingRL(
-        config=RLEnvironmentConfig(**env_cfg),
-        render_mode=cfg["rl_evaluation"]["render_mode"],
-    )
+    train_env = make_vec(cfg, train_cfg["num_envs"])
+    eval_env = TentacleTargetFollowingRL(config)
 
-    # POLICY
+    
     net = [int(x) for x in train_cfg["net_arch"].split("-")]
     policy_kwargs = dict(
         net_arch=dict(pi=net, vf=net),
         activation_fn=getattr(nn, train_cfg["activation_fn"]),
     )
-
     # MODEL
     model = PPO(
         "MlpPolicy",

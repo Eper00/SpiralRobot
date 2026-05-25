@@ -1,68 +1,84 @@
-rl_training:
-  rl_env:
-    # MuJoCo simulation settings
-    xml_file: "assets/simulation/tentacle.xml"
-    simulation_length_seconds: 1
-    time_between_steps_seconds: 0.02
-    pseudo_random_time: 3
-    future_horizon: 3
-    # Actuator/tendon settings
-    initial_actuator_position: [0.147, 0.25]
+rl_env:
+  # ----------------------------
+  # MuJoCo simulation settings
+  # ----------------------------
+  xml_file: "assets/simulation/tentacle_2D.xml"
+  simulation_length_seconds: 3
+  time_between_steps_seconds: 0.02
 
-    # Reward shaping
-    reward_distance_scale: 4.0
-    action_change_penalty_scale: 0.25
-    control_penalty_scale: 0.1
-  
-    # Environment objects
-    tip_site_name: "tip_center"
-    target_bounds_min: [-0.16, -0.16, 0.0026  ]
-    target_bounds_max: [0.16, 0.16, 0.23]
+  cable_lengths: [0.185632848, 1.160205301]
+  actuator_limits: [[0.0, 1.0], [0.0, 1.0]]
 
-    # Observation settings
-    num_frames: 6
-    include_actuator_lengths_in_obs: true
+  # ----------------------------
+  # Reward shaping
+  # ----------------------------
+  reward_distance_scale: 4
+  action_change_penalty_scale: 0.1
+  control_penalty_scale: 0.1
 
-    # Fixed target (optional)
-    fixed_target_position: null
+  # ----------------------------
+  # Environment objects
+  # ----------------------------
+  tip_site_name: "tip_center"
+  target_bounds_min: [ 0, 0.49]
+  target_bounds_max: [ 0.15, 0.92]
 
-    demonstration_number: 100
-  rl_training_params:
-    # Environment setup
-    num_envs: 10
+  # ----------------------------
+  # Observation settings
+  # ----------------------------
+  num_frames: 6
+  include_actuator_lengths_in_obs: true
 
-    # Training duration
-    total_timesteps: 5_000_000
-    # Evaluation
-    eval_freq: 10000
-    n_eval_episodes: 10
+  # Optional
+  fixed_target_position: null
 
-    # Checkpointing
-    save_freq: 50000
-    log_dir_base: "results"
 
-    # PPO hyperparameters
-    learning_rate: 0.00025
-    n_steps: 512
-    batch_size: 128
-    n_epochs: 6
-    gamma: 0.99
-    gae_lambda: 0.95
-    clip_range: 0.2
-    ent_coef: 0.005
-    target_kl: 0.1
-    # Network architecture
-    net_arch: "128-128"
-    activation_fn: "Tanh"
+# =====================================================
 
-  rl_evaluation:
-    num_episodes: 10
-    render_delay: 0.05
-    deterministic_actions: True
-    render_mode: null 
-    grid_size: 20
-    space_limit: 0.2
-  ir:
-   
-    BC_epochs: 1000
-    BC_batch_size: 128
+rl_training_params:
+  # Environment setup
+  num_envs: 10
+
+  # Training duration
+  total_timesteps: 8000000
+
+  # Evaluation
+  eval_freq: 10000
+  n_eval_episodes: 10
+  render_mode: null
+
+  # Checkpointing
+  save_freq: 50000
+  log_dir_base: "results"
+
+  # PPO hyperparameters
+  learning_rate: 0.00025
+  n_steps: 512
+  batch_size: 128
+  n_epochs: 6
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.22
+  ent_coef: 0.005
+  target_kl: 0.12
+
+  # Network architecture
+  net_arch: "128-128"
+  activation_fn: "Tanh"
+
+
+# =====================================================
+
+rl_evaluation:
+  num_episodes: 10
+  render_delay: 0.05
+  deterministic_actions: true
+  grid_size: 20
+  space_limit: 0.2
+
+
+# =====================================================
+
+ir:
+  BC_epochs: 1000
+  BC_batch_size: 128

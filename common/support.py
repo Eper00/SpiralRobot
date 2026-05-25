@@ -1,10 +1,14 @@
 import mujoco
 import numpy as np
 import matplotlib.pyplot as plt
+import yaml
 def _action_to_ctrl(action,actuator_low,actuator_high):
         return actuator_low + (action + 1.0) * 0.5 * (
             actuator_high - actuator_low
         )
+def load_config(path: str):
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
 def compute_spring_energy(model, data)->float:
     energy = 0.0
 
@@ -156,17 +160,4 @@ def _normalize_actuator_lengths(lengths,actuator_low,actuator_high) -> np.ndarra
             / (actuator_high - actuator_low)
             - 1.0
         )
-def reward_function(tip,target,action,max_distance,reward_distance_scale):
-    dist = np.linalg.norm(
-            tip - target
-        )
-
-    normalized_dist = dist / max_distance
-
-    normalized_dist = np.clip(
-            normalized_dist,
-            0.0,
-            1.0
-        )
-    return np.exp(-reward_distance_scale * normalized_dist)
 

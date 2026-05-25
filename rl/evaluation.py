@@ -11,24 +11,12 @@ from stable_baselines3 import PPO
 from rich.console import Console
 
 from rl.environment import TentacleTargetFollowingRL
-from common.loaders import  RLTrainingConfig
-
+from common.support import load_config
 console = Console()
 app = typer.Typer()
 
 
-# ----------------------------
-# CONFIG LOADER
-# ----------------------------
-def load_config(path: Optional[str]) -> RLTrainingConfig:
-    if path is None:
-        return RLTrainingConfig()
 
-    with open(path, "r") as f:
-        raw = yaml.safe_load(f) or {}
-
-    cfg = raw.get("rl_training", raw)
-    return RLTrainingConfig.model_validate(cfg)
 
 
 # ----------------------------
@@ -45,19 +33,22 @@ def evaluate(
     save_results: bool = typer.Option(False),
     verbose: bool = typer.Option(True),
 ):
+
     # --------------------
     # CONFIG
     # --------------------
     cfg = load_config(config)
 
-    if num_episodes is not None:
-        cfg.rl_evaluation.num_episodes = num_episodes
-    if deterministic is not None:
-        cfg.rl_evaluation.deterministic_actions = deterministic
-    if render_delay is not None:
-        cfg.rl_evaluation.render_delay = render_delay
+    rl_eval = cfg["rl_evaluation"]
 
-    cfg.rl_evaluation.render_mode = "human" if render else None
+    if num_episodes is not None:
+        rl_eval["num_episodes"] = num_episodes
+    if deterministic is not None:
+        rl_eval["deterministic_actions"] = deterministic
+    if render_delay is not None:
+        rl_eval["render_delay"] = render_delay
+
+    rl_eval["render_mode"] = "human" if render else None
 
     # --------------------
     # MODEL
@@ -69,17 +60,16 @@ def evaluate(
     model = PPO.load(str(model_path))
 
     # --------------------
-    # ENV
+    # ENV (IMPORTANT FIX HERE)
     # --------------------
-    env = TentacleTargetFollowingRL(
-        config=cfg.rl_env,
-        render_mode=cfg.rl_evaluation.render_mode,
-    )
-
+    env = TentacleTargetFollowingRL(config,render_mode="human" if render else None)
+    # --------------------
+    # LOG
+    # --------------------
     if verbose:
-        console.print(f"Episodes: {cfg.rl_evaluation.num_episodes}")
-        console.print(f"Render: {cfg.rl_evaluation.render_mode}")
-        console.print(f"Deterministic: {cfg.rl_evaluation.deterministic_actions}")
+        console.print(f"Episodes: {rl_eval['num_episodes']}")
+        console.print(f"Render: {rl_eval['render_mode']}")
+        console.print(f"Deterministic: {rl_eval['deterministic_actions']}")
 
     # --------------------
     # METRICS
@@ -89,7 +79,7 @@ def evaluate(
     threshold = 0.5
 
     try:
-        for ep in range(cfg.rl_evaluation.num_episodes):
+        for ep in range(rl_eval["num_episodes"]):
 
             obs, _ = env.reset()
             done = False
@@ -98,22 +88,22 @@ def evaluate(
             ep_len = 0
 
             while not done:
-
+                print(env.target_position)
                 action, _ = model.predict(
                     obs,
-                    deterministic=cfg.rl_evaluation.deterministic_actions,
+                    deterministic=rl_eval["deterministic_actions"],
                 )
 
                 obs, reward, terminated, truncated, info = env.step(action)
-                
                 done = terminated or truncated
+
                 ep_reward += reward
                 ep_len += 1
 
-                if cfg.rl_evaluation.render_mode == "human":
+                if rl_eval["render_mode"] == "human":
                     env.render()
-                    if cfg.rl_evaluation.render_delay:
-                        time.sleep(cfg.rl_evaluation.render_delay)
+                    if rl_eval.get("render_delay"):
+                        time.sleep(rl_eval["render_delay"])
 
             final_dist = info.get("distance_to_target", float("inf"))
 
@@ -133,10 +123,6 @@ def evaluate(
     # --------------------
     # RESULTS
     # --------------------
-    if not rewards:
-        console.print("No episodes run.")
-        return
-
     console.print("\n=== RESULTS ===")
     console.print(f"Episodes: {len(rewards)}")
     console.print(f"Reward: {np.mean(rewards):.3f} ± {np.std(rewards):.3f}")
@@ -152,7 +138,6 @@ def evaluate(
             f"Distance mean: {np.mean(distances)}\n"
         )
         console.print(f"Saved: {out}")
-
 # ----------------------------
 # ENTRYPOINT
 # ----------------------------
