@@ -88,7 +88,7 @@ def evaluate(
             ep_len = 0
 
             while not done:
-                print(env.target_position)
+              
                 action, _ = model.predict(
                     obs,
                     deterministic=rl_eval["deterministic_actions"],
@@ -102,8 +102,7 @@ def evaluate(
 
                 if rl_eval["render_mode"] == "human":
                     env.render()
-                    if rl_eval.get("render_delay"):
-                        time.sleep(rl_eval["render_delay"])
+        
 
             final_dist = info.get("distance_to_target", float("inf"))
 

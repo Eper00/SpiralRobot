@@ -1,95 +1,66 @@
+from common.base_class import TentacleBaseEnv
+from common.support import _get_tip_position, load_config
+from typing import Tuple, Dict, Any, Optional, Union
 import numpy as np
-from imitation.data.types import Trajectory
-from common.support import _get_tip_position,_normalize_position,_normalize_actuator_lengths
-import copy
-class Expert:
+import time
+class TentacleTargetFollowingExpert(TentacleBaseEnv):
+    def __init__(
+        self,
+        config: Dict[str, Any]=None,
+        render_mode: str = None,
+    ):
+        super().__init__(config, render_mode)
+        self.action = np.zeros(self.actuator_dim)
+    def coil_policy(self,direction):
+       
+        if direction == 1:
+            self.action[0] = -1.0
+            self.action[1] = 1
+        else:
+            self.action[0] = 1
+            self.action[1] = -1.0
+        return np.clip(self.action, -1, 1)
+    def uncoil_policy(self,direction,perturbation_input):
+        if direction == 1:
+            self.action[0] += perturbation_input
+            self.action[1] = -0.1
+        else:
+            self.action[0] = -0.1
+            self.action[1] += perturbation_input
+        return np.clip(self.action, -1, 1)
+    def relax_policy(self):
+        self.action = self.action
+        return self.action
+    def one_rollout(self):
 
-    def __init__(self, env):
-        self.env = copy.deepcopy(env)
-    def policy(self):
-        return np.random.uniform(-1,1,3)
+            self._base_reset()
+            direction = np.random.choice([0,1])
+            perturbation_input=np.random.uniform(0.001, 0.005)
+            obs_list = []
+            act_list = []
+            self.render_mode = "human"
+            coil_len = int(self._max_episode_steps * 0.1)
+            uncoil_len=int(self._max_episode_steps * 0.15)
+            for t in range(self._max_episode_steps):
+                time.sleep(0.01)
+                # ---- phase policy only ----
+                if t < coil_len:
+                    self.action = self.coil_policy(direction)
+                elif  t> coil_len and t < coil_len+uncoil_len:
+                     self.action = self.uncoil_policy(direction, perturbation_input)
+                else:
+                    self.action = self.relax_policy()
+                self._base_step(self.action)
+                self.render()
+                
+            
 
-    def rollout_episode(self):
+            final_tip = _get_tip_position(self.model, self.data)[1:3]
 
-        self.env._base_reset()
+            # IMPORTANT: hindsight goal
+            target = final_tip.copy()
 
-        tips = []
-        actions = []
-        actuators = []
-
-        action = self.policy()
-        done = False
-
-        while not done:
-            tips.append(_get_tip_position(self.env.model, self.env.data).copy())
-            actions.append(action.copy())
-            if self.env.include_actuator_lengths_in_obs:
-                actuators.append(self.env.data.actuator_length.copy())
-            ok = self.env._simulate(action)
-            if not ok:
-                break
-
-            done = self.env._elapsed_steps >= self.env._max_episode_steps
-
-        final_tip = _get_tip_position(self.env.model, self.env.data).copy()
-        tips.append(final_tip)
-
-        if self.env.include_actuator_lengths_in_obs:
-            actuators.append(self.env.data.actuator_length.copy())
-
-        target = final_tip.copy()
-        obs_array = self.build_il_obs_sequence(tips, target, actuators)
-        
-        return obs_array, np.array(actions, dtype=np.float32),target.copy()
-    def build_il_obs_sequence(self, tips, target, actuators=None):
-
-        target_norm = _normalize_position(
-            target,
-            self.env.workspace_center,
-            self.env.workspace_scale
-        )
-
-        obs_seq = []
-
-        for i in range(len(tips)):
-
-            tip_n = _normalize_position(
-                tips[i],
-                self.env.workspace_center,
-                self.env.workspace_scale
-            )
-
-            obs_parts = [tip_n, target_norm]
-
-            if actuators is not None:
-                actuator_n = _normalize_actuator_lengths(
-                    actuators[i],
-                    self.env.actuator_low,
-                    self.env.actuator_high,
-                )
-                obs_parts.append(actuator_n)
-
-            obs_seq.append(np.concatenate(obs_parts).astype(np.float32))
-
-        return np.array(obs_seq, dtype=np.float32)
-    def create_demonstrations(self, num_episodes=3):
-
-        trajectories = []
-
-        for _ in range(num_episodes):
-
-            obs_list, act_list,target = self.rollout_episode()
-           
-            if len(obs_list) < 2:
-                continue
-
-            trajectories.append(
-                Trajectory(
-                    obs=np.array(obs_list, dtype=np.float32),
-                    acts=np.array(act_list, dtype=np.float32),
-                    infos=None,
-                    terminal=True,
-                )
-            )
-
-        return trajectories
+            return (
+                np.array(obs_list, dtype=np.float32),
+                np.array(act_list, dtype=np.float32),
+                target)

@@ -1,3 +1,5 @@
+import time
+
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -19,6 +21,7 @@ class TentacleBaseEnv(gym.Env):
 
         super().__init__()
         self.config = load_config(config) if isinstance(config, str) else config
+        self.render_delay=self.config['rl_evaluation']['render_delay']
         self.config = self.config['rl_env']
         self.render_mode = render_mode
         self.num_frames = self.config['num_frames']
@@ -71,11 +74,10 @@ class TentacleBaseEnv(gym.Env):
         self.time_between_steps_seconds = (
             self.config['time_between_steps_seconds']
         )
-        self.action_change_penalty_scale=(
-            self.config['action_change_penalty_scale']
-        )
+ 
         self.timestep = self.model.opt.timestep
 
+        
         self.frame_skip = max(
             1,
             round(
@@ -208,7 +210,7 @@ class TentacleBaseEnv(gym.Env):
     )
 
         mujoco.mj_forward(self.model, self.data)
-    def _simulate(self, action):
+    def _base_step(self, action):
 
         action = np.clip(action, -1, 1)
 
@@ -250,6 +252,8 @@ class TentacleBaseEnv(gym.Env):
                 self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
             if self.viewer and self.viewer.is_running():
                 self.viewer.sync()
+            if self.render_delay is not None:
+                time.sleep(self.render_delay)
 
     def close(self) -> None:
         if self.viewer:

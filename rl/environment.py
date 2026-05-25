@@ -27,7 +27,7 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
 
 
     def step(self, action):
-        if(self._simulate(action)):
+        if(self._base_step(action)):
             return self._compute_step(action)
         else:
             return self.fail_step()
@@ -67,13 +67,9 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
 
 
         distance_reward =  np.exp(-self.reward_distance_scale * normalized_dist)
-        if (self.prev_action is not None):
-            action_change = action - self.prev_action
-            input_change_penalty = self.action_change_penalty_scale * np.linalg.norm(action_change)/3
-        else:
-            input_change_penalty = 0.0
        
-        return distance_reward - input_change_penalty
+       
+        return distance_reward 
     def reset(self, *, seed=None, options=None):
         self.prev_action=None
         super().reset(seed=seed)
