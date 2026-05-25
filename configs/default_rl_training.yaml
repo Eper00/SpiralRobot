@@ -3,8 +3,8 @@ rl_env:
   # MuJoCo simulation settings
   # ----------------------------
   xml_file: "assets/simulation/tentacle_2D.xml"
-  simulation_length_seconds: 10
-  time_between_steps_seconds: 0.005
+  simulation_length_seconds: 60
+  time_between_steps_seconds: 0.01
 
   cable_lengths: [0.185632848, 1.160205301]
   actuator_limits: [[0.0, 1.0], [0.0, 1.0]]

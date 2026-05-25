@@ -84,7 +84,6 @@ class TentacleBaseEnv(gym.Env):
                 self.time_between_steps_seconds / self.timestep
             ),
         )
-
         self.time_per_step = (
             self.frame_skip * self.timestep
         )

@@ -11,45 +11,41 @@ class TentacleTargetFollowingExpert(TentacleBaseEnv):
     ):
         super().__init__(config, render_mode)
         self.action = np.zeros(self.actuator_dim)
-    def coil_policy(self,direction):
+    def coil_policy(self,direction,coiling_bias=0.5):
        
         if direction == 1:
             self.action[0] = -1.0
-            self.action[1] = 1
+            self.action[1] = coiling_bias
         else:
-            self.action[0] = 1
+            self.action[0] = coiling_bias
             self.action[1] = -1.0
         return np.clip(self.action, -1, 1)
-    def uncoil_policy(self,direction,perturbation_input):
+    def uncoil_policy(self,direction,uncoiling_bias=0.5,coiling_bias=0.5):
         if direction == 1:
-            self.action[0] += perturbation_input
-            self.action[1] = -0.1
+            self.action[0] = uncoiling_bias
+            self.action[1] = coiling_bias
         else:
-            self.action[0] = -0.1
-            self.action[1] += perturbation_input
-        return np.clip(self.action, -1, 1)
-    def relax_policy(self):
-        self.action = self.action
-        return self.action
+            self.action[0] = coiling_bias
+            self.action[1] = uncoiling_bias
+        return np.clip(self.action, -0.8, 0.8)
+
     def one_rollout(self):
 
             self._base_reset()
             direction = np.random.choice([0,1])
-            perturbation_input=np.random.uniform(0.001, 0.005)
+            curling_bias=np.random.uniform(0, 1)
+            uncoil_bias=np.random.uniform(curling_bias/2, 1)
             obs_list = []
             act_list = []
             self.render_mode = "human"
             coil_len = int(self._max_episode_steps * 0.1)
-            uncoil_len=int(self._max_episode_steps * 0.15)
+
             for t in range(self._max_episode_steps):
-                time.sleep(0.01)
                 # ---- phase policy only ----
                 if t < coil_len:
-                    self.action = self.coil_policy(direction)
-                elif  t> coil_len and t < coil_len+uncoil_len:
-                     self.action = self.uncoil_policy(direction, perturbation_input)
+                    self.action = self.coil_policy(direction, curling_bias)
                 else:
-                    self.action = self.relax_policy()
+                     self.action = self.uncoil_policy(direction, uncoil_bias,curling_bias)
                 self._base_step(self.action)
                 self.render()
                 
