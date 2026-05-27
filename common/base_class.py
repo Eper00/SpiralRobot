@@ -8,7 +8,7 @@ import mujoco.viewer
 import os
 from collections import deque
 from typing import  Optional, Dict, Any
-from common.support import _get_tip_position, _action_to_ctrl,_normalize_position,_normalize_actuator_lengths,load_config
+from common.support import _get_sites_positions, _action_to_ctrl,_normalize_position,_normalize_actuator_lengths,load_config
 
 class TentacleBaseEnv(gym.Env):
 
@@ -29,19 +29,21 @@ class TentacleBaseEnv(gym.Env):
         # -------------------------
         # XML
         # -------------------------
-        xml_file = self.config['xml_file']
 
+       
+        xml_file = self.config['xml_file']
+        
         if not os.path.exists(xml_file):
             script_dir = os.path.dirname(__file__)
             xml_file = os.path.join(script_dir, xml_file)
 
         self.model = mujoco.MjModel.from_xml_path(xml_file)
         self.data = mujoco.MjData(self.model)
-
+        self.marker_names= [f"marker_{i}" for i in range(1, self.config['marker_number']+1)]
+       
         # -------------------------
         # Config
         # -------------------------
-        self.tip_site_name = self.config['tip_site_name']
 
         self.include_actuator_lengths_in_obs = (
             self.config['include_actuator_lengths_in_obs']
@@ -98,7 +100,6 @@ class TentacleBaseEnv(gym.Env):
         # -------------------------
         self.actuator_dim = self.model.nu 
         self.target_dim= len(self.target_bounds_min)
-        self.tip_dim=2
         self.action_space = spaces.Box(
             low=-1,
             high=1,
@@ -117,7 +118,7 @@ class TentacleBaseEnv(gym.Env):
         self.tip_site_id = mujoco.mj_name2id(
             self.model,
             mujoco.mjtObj.mjOBJ_SITE,
-            self.tip_site_name,
+            self.marker_names[-1],
         )
 
         self.target_site_id = mujoco.mj_name2id(
@@ -132,15 +133,17 @@ class TentacleBaseEnv(gym.Env):
         self.target_position = np.zeros(self.target_dim)
 
         self._elapsed_steps = 0
-
+        
         self.viewer = None
         self.renderer = None
 
         # -------------------------
         # Observation dims
         # -------------------------
-        self.single_frame_obs_dim = self.tip_dim + self.target_dim
+
+        self.single_frame_obs_dim = self.config['marker_number'] * self.target_dim + self.target_dim
         self.prev_action=None
+        self.prev_dist=None
         if self.include_actuator_lengths_in_obs:
             self.single_frame_obs_dim += self.actuator_dim
         stacked_obs_shape = (self.num_frames * self.single_frame_obs_dim,)
@@ -159,21 +162,21 @@ class TentacleBaseEnv(gym.Env):
     def _get_current_raw_obs(self):
 
 
-        tip = _get_tip_position(self.model, self.data)[1:3]
+        marker_positions = _get_sites_positions(self.model, self.data, self.marker_names)[:, :2]
         target = self.target_position.copy()
-        tip = _normalize_position(
-            tip,
+
+        marker_positions = _normalize_position(
+            marker_positions,
             self.workspace_center,
             self.workspace_scale,
         )
-
         target = _normalize_position(
             target,
             self.workspace_center,
             self.workspace_scale,
         )
-        
-        obs_parts = [tip, target]
+
+        obs_parts = np.concatenate([marker_positions.flatten(), target.flatten()])
         if self.include_actuator_lengths_in_obs:
 
             actuator = self.data.actuator_length.copy()
@@ -183,12 +186,11 @@ class TentacleBaseEnv(gym.Env):
                 self.cable_min,
                 self.cable_max,
             )
-
-            obs_parts.append(actuator)
+            obs_parts = np.concatenate([obs_parts, actuator.flatten()])
    
 
 
-        return np.concatenate(obs_parts).astype(np.float32)
+        return obs_parts
     def _base_reset(self):
 
         mujoco.mj_resetData(self.model, self.data)

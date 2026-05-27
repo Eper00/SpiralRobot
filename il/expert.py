@@ -1,5 +1,7 @@
+from matplotlib import pyplot as plt
+
 from common.base_class import TentacleBaseEnv
-from common.support import _get_tip_position, load_config
+from common.support import _get_sites_positions, load_config
 from typing import Tuple, Dict, Any, Optional, Union
 import numpy as np
 import time
@@ -11,52 +13,68 @@ class TentacleTargetFollowingExpert(TentacleBaseEnv):
     ):
         super().__init__(config, render_mode)
         self.action = np.zeros(self.actuator_dim)
-    def coil_policy(self,direction,coiling_bias=0.5):
+    def workspace_edge_polcy(self,direction,coiling_bias):
        
         if direction == 1:
-            self.action[0] = -1.0
+            self.action[0] = -0.9
             self.action[1] = coiling_bias
         else:
             self.action[0] = coiling_bias
-            self.action[1] = -1.0
+            self.action[1] = -0.9
         return np.clip(self.action, -1, 1)
-    def uncoil_policy(self,direction,uncoiling_bias=0.5,coiling_bias=0.5):
+    def workspace_center_polcy(self,direction,base,small_gain):
         if direction == 1:
-            self.action[0] = uncoiling_bias
-            self.action[1] = coiling_bias
+            self.action[0] = base
+            self.action[1] = base+small_gain
         else:
-            self.action[0] = coiling_bias
-            self.action[1] = uncoiling_bias
-        return np.clip(self.action, -0.8, 0.8)
+            self.action[0] = base+small_gain
+            self.action[1] = base
+        return np.clip(self.action, -0.2, 0.2)
 
     def one_rollout(self):
+        self._base_reset()
 
-            self._base_reset()
-            direction = np.random.choice([0,1])
-            curling_bias=np.random.uniform(0, 1)
-            uncoil_bias=np.random.uniform(curling_bias/2, 1)
-            obs_list = []
-            act_list = []
-            self.render_mode = "human"
-            coil_len = int(self._max_episode_steps * 0.1)
+        direction = np.random.choice([0,1])
+        policy_switch = np.random.choice([0,1])
 
-            for t in range(self._max_episode_steps):
-                # ---- phase policy only ----
-                if t < coil_len:
-                    self.action = self.coil_policy(direction, curling_bias)
-                else:
-                     self.action = self.uncoil_policy(direction, uncoil_bias,curling_bias)
-                self._base_step(self.action)
-                self.render()
+        coiling_bias = np.random.uniform(-1, -0.5)
+        base = np.random.uniform(-0.7,0.7)
+        small_gain = np.random.uniform(-0.1,0.1)
+
+        for t in range(self._max_episode_steps):
+            if policy_switch == 0:
+                self.workspace_edge_polcy(direction, coiling_bias)
+                policy_name = "edge"
+            else:
+                self.workspace_center_polcy(direction, base, small_gain)
+                policy_name = "center"
+
+            self._base_step(self.action)
+
+        final_tip = _get_sites_positions(
+            self.model,
+            self.data,
+            self.marker_names[-1]
+        )[0][1:]
+
+        target = final_tip.copy()
+
+        return target, policy_name
                 
-            
+    def many_rollout(self, amount_of_demonstration):
 
-            final_tip = _get_tip_position(self.model, self.data)[1:3]
+        results = [self.one_rollout() for _ in range(amount_of_demonstration)]
 
-            # IMPORTANT: hindsight goal
-            target = final_tip.copy()
+        points = np.array([r[0] for r in results])
+        labels = [r[1] for r in results]
 
-            return (
-                np.array(obs_list, dtype=np.float32),
-                np.array(act_list, dtype=np.float32),
-                target)
+        for label in set(labels):
+            mask = np.array(labels) == label
+            plt.scatter(
+                points[mask,0],
+                points[mask,1],
+                label=label
+            )
+
+        plt.legend()
+        plt.show()

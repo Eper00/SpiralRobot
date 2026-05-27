@@ -8,7 +8,7 @@ import mujoco.viewer
 import os
 from collections import deque
 from typing import  Optional, Dict, Any
-from common.support import _get_tip_position, load_config
+from common.support import _get_sites_positions, load_config
 from common.base_class import TentacleBaseEnv
 
 class TentacleTargetFollowingRL(TentacleBaseEnv):
@@ -18,8 +18,7 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
         render_mode: str = None,
     ):
         super().__init__(config, render_mode)
-       
-
+        
     def _get_obs(self) -> np.ndarray:
         """Retrieves the stacked observation from the buffer."""
         assert len(self.obs_buffer) == self.num_frames, "Observation buffer not full!"
@@ -33,14 +32,13 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
             return self.fail_step()
     def _compute_step(self,action):
         # Smooth normalized reward
-        tip = _get_tip_position(self.model, self.data)[1:3]
+        tip = _get_sites_positions(self.model, self.data, self.marker_names[-1]).squeeze()[1:]
         target=self.target_position
         actuator_lengths = self.data.actuator_length.copy()
-        reward =self.reward_function(tip,target,actuator_lengths,action)
+        reward =self.reward_function(tip,target,action)
         truncated = (
             self._elapsed_steps >= self._max_episode_steps
         )
-
         obs = self._get_current_raw_obs()
         self.obs_buffer.append(obs)
         self.prev_action=action.copy()
@@ -52,26 +50,33 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
             self._get_info(),
         )
     
-    def reward_function(self, tip, target, actuator_lengths, action):
-        dist = np.linalg.norm(
-                tip - target
-            )
+    def reward_function(self, tip, target, action):
 
-        normalized_dist = dist / self.max_distance
+        dist = np.linalg.norm(tip - target)
 
-        normalized_dist = np.clip(
-                normalized_dist,
-                0.0,
-                1.0
-            )
+        # 1. base reward
+        r_dist = np.exp(-self.reward_distance_scale * dist)
 
+        if self.prev_dist is not None:
+            r_progress = self.prev_dist - dist
+        else:
+            r_progress = 0.0
+            self.prev_dist = dist
 
-        distance_reward =  np.exp(-self.reward_distance_scale * normalized_dist)
-       
-       
-        return distance_reward 
+        # 3. energy penalty
+        r_energy = -0.01 * np.sum(action**2)
+
+        reward = (
+            2.0 * (self.prev_dist - dist)
+            + 0.1 * np.exp(-self.reward_distance_scale * dist)
+            - 0.01 * np.sum(action**2)
+        )
+
+        self.prev_dist = dist
+
+        return reward
     def reset(self, *, seed=None, options=None):
-        self.prev_action=None
+        self.prev_dist=None
         super().reset(seed=seed)
 
         self._base_reset()

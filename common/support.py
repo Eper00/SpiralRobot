@@ -38,16 +38,23 @@ def quat_angle(quat)->float:
     w = np.clip(np.abs(quat[0]), -1.0, 1.0)
 
     return 2.0 * np.arccos(w)
-def _get_tip_position(model, data, site_name="tip_center") -> np.ndarray:
 
-    site_id = mujoco.mj_name2id(
-        model,
-        mujoco.mjtObj.mjOBJ_SITE,
-        site_name
-    )
 
-    return data.site_xpos[site_id].copy()
-
+def _get_sites_positions(model, data, site_names) -> np.ndarray:
+    """
+    Returns:
+        (N, 3) array of site positions
+    """
+    positions = []
+    site_names=[site_names] if isinstance(site_names, str) else site_names
+    for name in site_names:
+        site_id = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_SITE,
+            name
+        )
+        positions.append(data.site_xpos[site_id].copy())
+    return np.array(positions)
 def _read_dataset(dataset_path):
 
     data = np.load(dataset_path)
@@ -151,10 +158,17 @@ def visualize_dataset(states, actions, max_trajectories=10):
 
     plt.tight_layout()
     plt.show()
-def _normalize_position(pos,workspace_center,workspace_scale) -> np.ndarray:
-    return (pos - workspace_center) / workspace_scale
+def _normalize_position(positions,workspace_center,workspace_scale) -> np.ndarray:
+    positions = np.asarray(positions)
+
+
+    return (positions - workspace_center[None ,:]) / workspace_scale[None, :]
+
 def _normalize_actuator_lengths(lengths,actuator_low,actuator_high) -> np.ndarray:
-        return (
+    lengths = np.asarray(lengths)
+    actuator_low = np.asarray(actuator_low)
+    actuator_high = np.asarray(actuator_high)
+    return (
             2.0
             * (lengths - actuator_low)
             / (actuator_high - actuator_low)
