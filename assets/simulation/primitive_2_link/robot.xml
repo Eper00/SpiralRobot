@@ -1,0 +1,66 @@
+<mujoco model="spiral_robot">
+  <compiler angle="radian"/>
+  <option gravity="0 0 0"/>
+  <asset>
+    <mesh name="baselink_1" file="baselink.stl" scale="0.001000000 0.001000000 0.001000000"/>
+    <mesh name="baselink_2" file="baselink.stl" scale="0.000876002 0.000876002 0.000876002"/>
+    <mesh name="baselink_3" file="baselink.stl" scale="0.000767380 0.000767380 0.000767380"/>
+    <texture name="texplane" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2" width="512" height="512" mark="cross" markrgb=".8 .8 .8"/>
+    <material name="matplane" reflectance="0.3" texture="texplane" texrepeat="1 1" texuniform="true"/>
+  </asset>
+  <worldbody>
+    <geom name="ground" type="plane" size="10 10 1" pos="0 0 0" quat="1 0 0 0" material="matplane" condim="1"/>
+    <light pos="1 0.5 0.7" dir="-1 -0.5 -1" directional="true" castshadow="false" diffuse="1 1 1" specular="0.3 0.3 0.3"/>
+    <body name="link1" pos="0 0 0.027339759">
+      <geom type="mesh" mesh="baselink_1"/>
+      <site name="s1_1" pos="0.000000000 0.005371852 0.003230964" size="0.001000 0.001000 0.001000"/>
+      <site name="s1_2" pos="0.000000000 0.004630679 0.009360576" size="0.001000 0.001000 0.001000"/>
+      <site name="s1_3" pos="0.000000000 -0.005371852 0.003230964" size="0.001000 0.001000 0.001000"/>
+      <site name="s1_4" pos="0.000000000 -0.004630679 0.009360576" size="0.001000 0.001000 0.001000"/>
+      <body name="link2" pos="0 0 0.010342720">
+        <joint type="hinge" axis="1 0 0" range="-0.750491578 0.750491578" stiffness="0.010000" damping="0.010000"/>
+        <geom type="mesh" mesh="baselink_2"/>
+        <site name="s2_1" pos="0.000000000 0.004705754 0.002830331" size="0.000876 0.000876 0.000876"/>
+        <site name="s2_2" pos="0.000000000 0.004056485 0.008199885" size="0.000876 0.000876 0.000876"/>
+        <site name="s2_3" pos="0.000000000 -0.004705754 0.002830331" size="0.000876 0.000876 0.000876"/>
+        <site name="s2_4" pos="0.000000000 -0.004056485 0.008199885" size="0.000876 0.000876 0.000876"/>
+      <body name="link3" pos="0 0 0.009060245">
+        <joint type="hinge" axis="1 0 0" range="-0.750491578 0.750491578" stiffness="0.007674" damping="0.008760"/>
+        <geom type="mesh" mesh="baselink_3"/>
+        <site name="s3_1" pos="0.000000000 0.004122251 0.002479377" size="0.000767 0.000767 0.000767"/>
+        <site name="s3_2" pos="0.000000000 0.003553490 0.007183117" size="0.000767 0.000767 0.000767"/>
+        <site name="s3_3" pos="0.000000000 -0.004122251 0.002479377" size="0.000767 0.000767 0.000767"/>
+        <site name="s3_4" pos="0.000000000 -0.003553490 0.007183117" size="0.000767 0.000767 0.000767"/>
+                <site name="marker_3" 
+          type="sphere"
+          pos="0 0 0.01"
+          euler="0 1.57079632679 0"
+          size="0.003"
+          rgba="0 1 0 1"/>
+      </body>
+      </body>
+    </body>
+  </worldbody>
+  <tendon>
+    <spatial name="tendon1" width="0.0007" frictionloss="0.1" rgba=".95 .3 .3 1" limited="true" range="0.010935904 0.068349399">
+      <site site="s1_1"/>
+      <site site="s1_2"/>
+      <site site="s2_1"/>
+      <site site="s2_2"/>
+      <site site="s3_1"/>
+      <site site="s3_2"/>
+    </spatial>
+    <spatial name="tendon2" width="0.0007" frictionloss="0.1" rgba=".95 .3 .3 1" limited="true" range="0.010935904 0.068349399">
+      <site site="s1_3"/>
+      <site site="s1_4"/>
+      <site site="s2_3"/>
+      <site site="s2_4"/>
+      <site site="s3_3"/>
+      <site site="s3_4"/>
+    </spatial>
+  </tendon>
+   <actuator>
+    <position name="act1" tendon="tendon1" kp="5.0" ctrllimited="true" ctrlrange="-1 0.1" lengthrange="0.185632848 1.160205301"/>
+    <position name="act2" tendon="tendon2" kp="5.0" ctrllimited="true" ctrlrange="-1 0.1"  lengthrange="0.185632848 1.160205301" />
+  </actuator>
+</mujoco>
