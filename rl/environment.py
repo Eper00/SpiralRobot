@@ -16,8 +16,12 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
         self,
         config: Dict[str, Any]=None,
         render_mode: str = None,
-    ):
+    ):  
+        
+        
         super().__init__(config, render_mode)
+        self.warm_start=self.config['warm_start']
+        self.bc_path=self.config['bc_path']
         
     def _get_obs(self) -> np.ndarray:
         """Retrieves the stacked observation from the buffer."""
@@ -52,26 +56,30 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
     
     def reward_function(self, tip, target, action):
 
-        dist = np.linalg.norm(tip - target)
+        # distance (normalizálva)
+        dist = np.linalg.norm(tip - target) / (self.max_distance + 1e-8)
 
-        # 1. base reward
-        r_dist = np.exp(-self.reward_distance_scale * dist)
-
-        if self.prev_dist is not None:
-            r_progress = self.prev_dist - dist
-        else:
-            r_progress = 0.0
+        # prev_dist safety init
+        if self.prev_dist is None:
             self.prev_dist = dist
 
-        # 3. energy penalty
-        r_energy = -0.01 * np.sum(action**2)
+        # progress (clipped, hogy ne legyen outlier spike)
+        progress = self.prev_dist - dist
+        progress = np.clip(progress, -1.0, 1.0)
+
+        # dense proximity term (stable scale)
+        proximity = np.exp(-self.reward_distance_scale * dist)
+
+        # action penalty (kevesebb agresszív súly)
+        action_penalty = np.mean(np.square(action))
 
         reward = (
-            2.0 * (self.prev_dist - dist)
-            + 0.1 * np.exp(-self.reward_distance_scale * dist)
-            - 0.01 * np.sum(action**2)
+            2.0 * progress +
+            0.2 * proximity -
+            0.005 * action_penalty
         )
 
+        # update
         self.prev_dist = dist
 
         return reward

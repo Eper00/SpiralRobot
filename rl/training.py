@@ -18,7 +18,7 @@ from stable_baselines3.common.monitor import Monitor
 from common.support import load_config
 from rich.console import Console
 from rl.environment import env_creator, TentacleTargetFollowingRL
-
+import torch
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -86,12 +86,12 @@ def train(config: Optional[str] = typer.Option(None, "--config", "-c")):
     train_env = make_vec(cfg, train_cfg["num_envs"])
     eval_env = TentacleTargetFollowingRL(config)
 
-    
-    net = [int(x) for x in train_cfg["net_arch"].split("-")]
+    net = [int(x) for x in eval_env.net_arch]
     policy_kwargs = dict(
         net_arch=dict(pi=net, vf=net),
-        activation_fn=getattr(nn, train_cfg["activation_fn"]),
+        activation_fn=eval_env.activation_fn,
     )
+  
     # MODEL
     model = PPO(
         "MlpPolicy",
@@ -111,6 +111,14 @@ def train(config: Optional[str] = typer.Option(None, "--config", "-c")):
         device="cuda",
     )
 
+
+    
+    if (eval_env.warm_start and eval_env.bc_path is not None):
+        state_dict = torch.load(eval_env.bc_path, map_location="cpu")
+        model.policy.load_state_dict(state_dict, strict=False)
+        print(f"Loaded BC from {eval_env.bc_path}")
+    else:
+        print("No BC weights found. Training from scratch.")
     callbacks = make_callbacks(cfg, eval_env, model_dir, log_dir)
 
 

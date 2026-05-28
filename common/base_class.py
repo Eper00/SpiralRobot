@@ -9,7 +9,7 @@ import os
 from collections import deque
 from typing import  Optional, Dict, Any
 from common.support import _get_sites_positions, _action_to_ctrl,_normalize_position,_normalize_actuator_lengths,load_config
-
+import torch
 class TentacleBaseEnv(gym.Env):
 
     metadata = {
@@ -21,6 +21,17 @@ class TentacleBaseEnv(gym.Env):
 
         super().__init__()
         self.config = load_config(config) if isinstance(config, str) else config
+        policy_cfg=self.config['policy']
+        self.bc_cfg=self.config['ir']
+        self.net_arch = policy_cfg["net_arch"]
+        self.lr = float(policy_cfg["learning_rate"])
+        activation_fn = policy_cfg["activation_fn"]
+        if activation_fn == "relu":
+            self.activation_fn = torch.nn.ReLU
+        elif activation_fn == "tanh":
+            self.activation_fn = torch.nn.Tanh
+        else:
+            raise ValueError(f"Unsupported activation function: {activation_fn}")
         self.render_delay=self.config['rl_evaluation']['render_delay']
         self.config = self.config['rl_env']
         self.render_mode = render_mode
@@ -39,8 +50,8 @@ class TentacleBaseEnv(gym.Env):
 
         self.model = mujoco.MjModel.from_xml_path(xml_file)
         self.data = mujoco.MjData(self.model)
-        self.marker_names= [f"marker_{i}" for i in range(1, self.config['marker_number']+1)]
-       
+        #self.marker_names= [f"marker_{i}" for i in range(1, self.config['marker_number']+1)]
+        self.marker_names= "marker_25"
         # -------------------------
         # Config
         # -------------------------
@@ -162,7 +173,7 @@ class TentacleBaseEnv(gym.Env):
     def _get_current_raw_obs(self):
 
 
-        marker_positions = _get_sites_positions(self.model, self.data, self.marker_names)[:, :2]
+        marker_positions = _get_sites_positions(self.model, self.data, self.marker_names)[:, 1:]
         target = self.target_position.copy()
 
         marker_positions = _normalize_position(
