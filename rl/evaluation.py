@@ -1,22 +1,70 @@
 """Clean RL evaluation script (CLI version, same style as training)."""
 
-import time
 from pathlib import Path
 from typing import Optional
 
-import yaml
 import typer
 import numpy as np
+import torch
 from stable_baselines3 import PPO
 from rich.console import Console
 
 from rl.environment import TentacleTargetFollowingRL
 from common.support import load_config
+
 console = Console()
 app = typer.Typer()
 
 
+# ----------------------------
+# MODEL LOADER (BC + PPO unified)
+# ----------------------------
+def load_policy(model_path: Path, env, verbose=True):
 
+    path_str = str(model_path)
+
+    is_bc = (
+        model_path.name == "bc_policy.pt"
+        or "_bc" in path_str
+    )
+
+    if is_bc:
+
+        if verbose:
+            console.print("[yellow]Loading BC policy into PPO skeleton[/yellow]")
+
+        net = [int(x) for x in env.net_arch]
+
+        policy_kwargs = dict(
+            net_arch=dict(pi=net, vf=net),
+            activation_fn=env.activation_fn,
+        )
+
+        model = PPO(
+            "MlpPolicy",
+            env,
+            policy_kwargs=policy_kwargs,
+            device="cpu",
+        )
+
+        state_dict = torch.load(
+            model_path,
+            map_location="cpu",
+        )
+
+        model.policy.load_state_dict(
+            state_dict,
+            strict=False,
+        )
+
+        model.policy.eval()
+
+        return model
+
+    if verbose:
+        console.print("[green]Loading PPO model[/green]")
+
+    return PPO.load(str(model_path), env=env)
 
 
 # ----------------------------
@@ -38,7 +86,6 @@ def evaluate(
     # CONFIG
     # --------------------
     cfg = load_config(config)
-
     rl_eval = cfg["rl_evaluation"]
 
     if num_episodes is not None:
@@ -51,18 +98,19 @@ def evaluate(
     rl_eval["render_mode"] = "human" if render else None
 
     # --------------------
-    # MODEL
+    # ENV
     # --------------------
     model_path = Path(model_path)
     if not model_path.exists():
         raise FileNotFoundError(model_path)
 
-    model = PPO.load(str(model_path))
+    env = TentacleTargetFollowingRL(
+        cfg,
+        render_mode=rl_eval["render_mode"]
+    )
 
-    # --------------------
-    # ENV (IMPORTANT FIX HERE)
-    # --------------------
-    env = TentacleTargetFollowingRL(config,render_mode="human" if render else None)
+    model = load_policy(model_path, env, verbose=verbose)
+
     # --------------------
     # LOG
     # --------------------
@@ -88,7 +136,7 @@ def evaluate(
             ep_len = 0
 
             while not done:
-              
+
                 action, _ = model.predict(
                     obs,
                     deterministic=rl_eval["deterministic_actions"],
@@ -102,7 +150,6 @@ def evaluate(
 
                 if rl_eval["render_mode"] == "human":
                     env.render()
-        
 
             final_dist = info.get("distance_to_target", float("inf"))
 
@@ -137,6 +184,8 @@ def evaluate(
             f"Distance mean: {np.mean(distances)}\n"
         )
         console.print(f"Saved: {out}")
+
+
 # ----------------------------
 # ENTRYPOINT
 # ----------------------------

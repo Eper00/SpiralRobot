@@ -39,6 +39,7 @@ class TentacleTargetFollowingExpert(TentacleBaseEnv):
             self.action[0] = coiling_bias
             self.action[1] = -0.9
         return np.clip(self.action, -1, 1)
+   
     def workspace_center_polcy(self,direction,base,small_gain):
         if direction == 1:
             self.action[0] = base
@@ -58,19 +59,22 @@ class TentacleTargetFollowingExpert(TentacleBaseEnv):
         base = np.random.uniform(-0.7,0.7)
         small_gain = np.random.uniform(-0.1,0.1)
 
+
+
+        
         marker_positions = []
         actions = []
         actuators = []
-        policy_switch=1
         for t in range(self._max_episode_steps):
-
+           
+          
             if policy_switch == 0:
                 self.workspace_edge_polcy(direction, coiling_bias)
                 policy_name = "edge"
             else:
                 self.workspace_center_polcy(direction, base, small_gain)
                 policy_name = "center"
-
+       
             marker_positions.append(
                 _get_sites_positions(
                     self.model,
@@ -153,6 +157,42 @@ class TentacleTargetFollowingExpert(TentacleBaseEnv):
             observations.append(obs_parts)
 
         return np.array(observations)
+    def get_workspace_points(self, time_steps):
+       
+        tips=[]
+        for _ in range(time_steps):
+            self._base_reset()
+
+            for t in range(self._max_episode_steps):
+                direction = np.random.choice([0,1])
+                policy_switch = np.random.choice([0,1])
+
+                coiling_bias = np.random.uniform(-1, -0.5)
+                base = np.random.uniform(-0.7,0.7)
+                small_gain = np.random.uniform(-0.1,0.1)
+
+                if policy_switch == 0:
+                    self.workspace_edge_polcy(direction, coiling_bias)
+                else:
+                    self.workspace_center_polcy(direction, base, small_gain)
+
+                self._base_step(self.action)
+
+            final_tip = _get_sites_positions(
+                self.model,
+                self.data,
+                self.marker_names[-1]
+            )[0][1:]
+
+            tips.append(final_tip)
+    
+        
+        plt.scatter([t[0] for t in tips], [t[1] for t in tips])
+        plt.title("Random Policy Workspace Exploration")
+        plt.xlabel("X Position")
+        plt.ylabel("Y Position")
+        plt.grid()
+        plt.show()
     def generate_demonstrations(self, amount_of_demonstration):
 
        
