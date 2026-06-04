@@ -166,7 +166,7 @@ class TentacleBaseEnv(gym.Env):
             dtype=np.float32,
         )
 
-        
+    
     def _get_info(self):
 
         return {
