@@ -2,6 +2,7 @@ import time
 
 import gymnasium as gym
 from gymnasium import spaces
+from matplotlib import pyplot as plt
 import numpy as np
 from typing import Tuple, Dict, Any, Optional, Union
 import mujoco.viewer
@@ -22,7 +23,7 @@ class TentacleBaseEnv(gym.Env):
         super().__init__()
         self.config = load_config(config) if isinstance(config, str) else config
         policy_cfg=self.config['policy']
-        self.bc_cfg=self.config['ir']
+        self.bc_cfg=self.config['il']
         self.net_arch = policy_cfg["net_arch"]
         self.lr = float(policy_cfg["learning_rate"])
         activation_fn = policy_cfg["activation_fn"]
@@ -118,7 +119,7 @@ class TentacleBaseEnv(gym.Env):
             dtype=np.float32,
         )
         
-
+        self.targets=None
         self.actuator_low = self.model.actuator_ctrlrange[:, 0]
         self.actuator_high = self.model.actuator_ctrlrange[:, 1]
         self.cable_min= np.array(self.config['actuator_limits'])[:, 0]
@@ -164,6 +165,8 @@ class TentacleBaseEnv(gym.Env):
             shape=stacked_obs_shape,
             dtype=np.float32,
         )
+
+        
     def _get_info(self):
 
         return {
@@ -207,19 +210,25 @@ class TentacleBaseEnv(gym.Env):
         mujoco.mj_resetData(self.model, self.data)
 
         self._elapsed_steps = 0
-
+        try:
+            self.targets = np.load("workspace_points.npy")
+        except FileNotFoundError:
+            self.targets = None
         self.data.qvel[:] = 0
         self.data.ctrl[:] = 0.
-
-        self.target_position = np.random.uniform(
-            self.target_bounds_min,
-            self.target_bounds_max,
-            self.target_dim,
-        )
+        if self.targets is None:
+            self.target_position = np.random.uniform(
+                self.target_bounds_min,
+                self.target_bounds_max,
+                self.target_dim,
+            )
+        else:
+            self.target_position = self.targets[np.random.choice(len(self.targets))]
 
         self.data.site_xpos[self.target_site_id] = np.array(
         [0.0, self.target_position[0], self.target_position[1]]
     )
+    
 
         mujoco.mj_forward(self.model, self.data)
     def _base_step(self, action):

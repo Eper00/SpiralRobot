@@ -55,109 +55,71 @@ def _get_sites_positions(model, data, site_names) -> np.ndarray:
         )
         positions.append(data.site_xpos[site_id].copy())
     return np.array(positions)
-def _read_dataset(dataset_path):
 
-    data = np.load(dataset_path)
+def get_workspace_points(expert,
+                         grid_n=200,
+                         reach_threshold=0.01,
+                         trajectories=300,
+                         steps_per_traj=200):
 
-    states = data["states"]
-    actions = data["actions"]
-    print("States shape:", states.shape)
-    print("Actions shape:", actions.shape)
-    return states,actions
+    # 1) Uniform grid
+    [y_min, z_min] = expert.target_bounds_min
+    [y_max, z_max] = expert.target_bounds_max
 
-def visualize_dataset(states, actions, max_trajectories=10):
+    ys = np.linspace(y_min, y_max, grid_n)
+    zs = np.linspace(z_min, z_max, grid_n)
 
-    num_traj = min(states.shape[0], max_trajectories)
+    grid_points = np.array([(y, z) for y in ys for z in zs])
+    feasible_mask = np.zeros(len(grid_points), dtype=bool)
 
-    fig = plt.figure(figsize=(16, 8))
+    # 2) Futtatjuk az összes trajektóriát
+    for _ in range(trajectories):
 
-    # ======================================================
-    # 1. TIP + TARGET TRAJECTORIES
-    # ======================================================
-    ax1 = fig.add_subplot(121, projection="3d")
+        # reset + coiling
+        expert._base_reset()
+        direction = np.random.choice([0,1])
+        for _ in range(50):
+            expert.coiling_policy(direction)
+            expert._base_step(expert.action)
 
-    for i in range(num_traj):
+        # random exploration
+        expert.random_policy()
+        for _ in range(steps_per_traj):
 
-        traj = states[i]
+           
+            expert._base_step(expert.action)
 
-        tips = traj[:, 0:3]
-        targets = traj[:, 3:6]
+            tip = _get_sites_positions(
+                expert.model,
+                expert.data,
+                expert.marker_names[-1]
+            )[0][1:]
 
-        # tip trajectory
-        ax1.plot(
-            tips[:, 0],
-            tips[:, 1],
-            tips[:, 2],
-            linewidth=1.5,
-            alpha=0.7
-        )
+            # 3) Minden grid pontra megnézzük, hogy közel van-e
+            dists = np.linalg.norm(grid_points - tip, axis=1)
 
-        # target trajectory (dashed)
-        ax1.plot(
-            targets[:, 0],
-            targets[:, 1],
-            targets[:, 2],
-            linestyle="dashed",
-            alpha=0.4
-        )
+            # ahol közel van → megjelöljük fizibilisnek
+            feasible_mask |= (dists < reach_threshold)
 
-        # start
-        ax1.scatter(
-            tips[0, 0],
-            tips[0, 1],
-            tips[0, 2],
-            c="green",
-            s=15
-        )
+    # 4) Csak a fizibilis pontokat tartjuk meg
+    feasible_points = grid_points[feasible_mask]
 
-        # end
-        ax1.scatter(
-            tips[-1, 0],
-            tips[-1, 1],
-            tips[-1, 2],
-            c="red",
-            s=15
-        )
+    # 5) Mentés + vizualizáció
+    np.save("workspace_points.npy", feasible_points)
 
-    ax1.set_title("Tip + Target Trajectories")
-    ax1.set_xlabel("X")
-    ax1.set_ylabel("Y")
-    ax1.set_zlabel("Z")
-
-    # ======================================================
-    # 2. ACTION FIELD
-    # ======================================================
-    ax2 = fig.add_subplot(122, projection="3d")
-
-    for i in range(num_traj):
-
-        traj = states[i]
-        acts = actions[i]
-
-        tips = traj[:-1, 0:3]
-
-        step = max(1, len(acts) // 40)
-        idx = np.arange(0, len(acts), step)
-
-        ax2.quiver(
-            tips[idx, 0],
-            tips[idx, 1],
-            tips[idx, 2],
-            acts[idx, 0],
-            acts[idx, 1],
-            acts[idx, 2],
-            length=0.03,
-            normalize=True,
-            alpha=0.5
-        )
-
-    ax2.set_title("Action Field (Control Directions)")
-    ax2.set_xlabel("X")
-    ax2.set_ylabel("Y")
-    ax2.set_zlabel("Z")
-
-    plt.tight_layout()
+    plt.scatter(feasible_points[:,0], feasible_points[:,1], s=5)
+    plt.title("Uniform Grid Workspace (Feasible Points Only)")
+    plt.xlabel("X Position")
+    plt.ylabel("Y Position")
+    plt.grid()
     plt.show()
+
+    return feasible_points
+
+
+
+
+
 def _normalize_position(positions,workspace_center,workspace_scale) -> np.ndarray:
     positions = np.asarray(positions)
 

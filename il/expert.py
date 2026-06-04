@@ -6,13 +6,7 @@ from typing import Tuple, Dict, Any, Optional, Union
 import numpy as np
 from gymnasium import spaces
 from imitation.data.types import Trajectory
-from imitation.algorithms.bc import BC
-from stable_baselines3 import PPO
-from stable_baselines3.common.policies import ActorCriticPolicy
-from pathlib import Path
-from datetime import datetime
-from imitation.util import logger as imit_logger
-import torch
+
 class TentacleTargetFollowingExpert(TentacleBaseEnv):
     def __init__(
         self,
@@ -30,77 +24,65 @@ class TentacleTargetFollowingExpert(TentacleBaseEnv):
         )
         self.bc_epochs=self.bc_cfg['BC_epochs']
         self.bc_batch_size=self.bc_cfg['BC_batch_size']
-    def workspace_edge_polcy(self,direction,coiling_bias):
-       
-        if direction == 1:
-            self.action[0] = -0.9
-            self.action[1] = coiling_bias
-        else:
-            self.action[0] = coiling_bias
-            self.action[1] = -0.9
-        return np.clip(self.action, -1, 1)
-   
-    def workspace_center_polcy(self,direction,base,small_gain):
-        if direction == 1:
-            self.action[0] = base
-            self.action[1] = base+small_gain
-        else:
-            self.action[0] = base+small_gain
-            self.action[1] = base
-        return np.clip(self.action, -0.2, 0.2)
+        self.trajectories=self.bc_cfg['trajectories']
+        self.sample_for_one_trajectory=self.bc_cfg['sample_for_one_trajectory']
 
-    def one_rollout(self):
+    def coiling_policy(self,direction):
+        if direction == 0:
+            self.action=[-1,1]
+        else:
+            self.action=[1,-1]
+    def random_policy(self):
+        self.action=np.random.uniform(-1,1,size=self.actuator_dim)
+    def one_trajectory(self):
         self._base_reset()
 
         direction = np.random.choice([0,1])
-        policy_switch = np.random.choice([0,1])
+       
 
-        coiling_bias = np.random.uniform(-1, -0.5)
-        base = np.random.uniform(-0.7,0.7)
-        small_gain = np.random.uniform(-0.1,0.1)
-
-
-
-        
-        marker_positions = []
+    
+        tips=[]
         actions = []
         actuators = []
-        for t in range(self._max_episode_steps):
-           
-          
-            if policy_switch == 0:
-                self.workspace_edge_polcy(direction, coiling_bias)
-                policy_name = "edge"
-            else:
-                self.workspace_center_polcy(direction, base, small_gain)
-                policy_name = "center"
-       
-            marker_positions.append(
-                _get_sites_positions(
+        for _ in range(50):
+            tip = _get_sites_positions(
                     self.model,
                     self.data,
-                    self.marker_names
-                )[:, 1:]
-            )
+                    self.marker_names[-1]
+                )[0][1:]
+
+            tips.append(tip)
+            if self.include_actuator_lengths_in_obs:
+                actuator = self.data.actuator_length.copy()
+                actuators.append(actuator.copy())
+
+            actions.append(self.action.copy())
+            self.coiling_policy(direction)
+            self._base_step(self.action)
+        self.random_policy()
+        for t in range(self._max_episode_steps):
+            tip = _get_sites_positions(
+                    self.model,
+                    self.data,
+                    self.marker_names[-1]
+                )[0][1:]
+
+            tips.append(tip)
 
             if self.include_actuator_lengths_in_obs:
                 actuator = self.data.actuator_length.copy()
                 actuators.append(actuator.copy())
 
             actions.append(self.action.copy())
-
             self._base_step(self.action)
+         
 
-        final_tip = _get_sites_positions(
-            self.model,
-            self.data,
-            self.marker_names[-1]
-        )[0][1:]
 
-        target = final_tip.copy()
+    
+
        
         
-        return  marker_positions,actuators,actions,target,policy_name
+        return  tips,actuators,actions
     def assebmly_observation(
         self,
         marker_positions,
@@ -157,133 +139,124 @@ class TentacleTargetFollowingExpert(TentacleBaseEnv):
             observations.append(obs_parts)
 
         return np.array(observations)
-    def get_workspace_points(self, time_steps):
-       
-        tips=[]
-        for _ in range(time_steps):
-            self._base_reset()
 
-            for t in range(self._max_episode_steps):
-                direction = np.random.choice([0,1])
-                policy_switch = np.random.choice([0,1])
+    def _make_transition(self, state_t, actuator_t, target):
+        """Egyetlen HER-szerű BC minta előállítása."""
+        return self.assebmly_observation(
+            [state_t],
+            [actuator_t],
+            target
+        )[0]
 
-                coiling_bias = np.random.uniform(-1, -0.5)
-                base = np.random.uniform(-0.7,0.7)
-                small_gain = np.random.uniform(-0.1,0.1)
 
-                if policy_switch == 0:
-                    self.workspace_edge_polcy(direction, coiling_bias)
+    def _final_observation(self, last_state, last_actuator):
+        """Extra utolsó observation, hogy len(obs) = len(acts) + 1 legyen."""
+        return self.assebmly_observation(
+            [last_state],
+            [last_actuator],
+            last_state  # target itt mindegy
+        )[0]
+
+
+    def generate_demonstrations(self):
+
+        trajectories = []
+        targets = []
+
+        S = self.sample_for_one_trajectory      # pl. 1000
+        K = 100                                   # ennyi target egy trajból
+
+        x_min, y_min = self.target_bounds_min
+        x_max, y_max = self.target_bounds_max
+
+        grid_n = 200
+        visited_bins = np.zeros((grid_n, grid_n), dtype=bool)
+
+        def get_bin(x, y):
+            bx = int((x - x_min) / (x_max - x_min) * (grid_n - 1))
+            by = int((y - y_min) / (y_max - y_min) * (grid_n - 1))
+            return bx, by
+
+        for _ in range(self.trajectories):
+
+            # --- 1) Trajektória generálás ---
+            tips, actuators, actions = self.one_trajectory()
+
+            # --- 2) Több target kiválasztása ---
+            possible_targets = list(range(40, len(tips)))
+            if len(possible_targets) < K:
+                continue
+
+            target_indices = np.random.choice(possible_targets, size=K, replace=False)
+
+            observations = []
+            actions_trajectory = []
+
+            used_time_indices = set()  # hogy ne duplikáljunk state–action párokat
+
+            for target_idx in target_indices:
+
+                target = tips[target_idx]
+
+                # bin check
+                bx, by = get_bin(target[0], target[1])
+                if visited_bins[bx, by]:
+                    continue
+                visited_bins[bx, by] = True
+                targets.append(target)
+
+                # --- 3) Mintavételezés ehhez a targethez ---
+                valid_indices = [i for i in range(len(tips)-1) if i not in used_time_indices]
+
+                if len(valid_indices) == 0:
+                    break
+
+                if len(valid_indices) >= S // K:
+                    sampled_indices = np.random.choice(valid_indices, size=S // K, replace=False)
                 else:
-                    self.workspace_center_polcy(direction, base, small_gain)
+                    sampled_indices = valid_indices
 
-                self._base_step(self.action)
+                used_time_indices.update(sampled_indices)
 
-            final_tip = _get_sites_positions(
-                self.model,
-                self.data,
-                self.marker_names[-1]
-            )[0][1:]
+                # --- 4) Minden mintához ugyanaz a target ---
+                for t in sampled_indices:
+                    state_t = tips[t]
+                    action_t = actions[t]
+                    actuator_t = actuators[t]
 
-            tips.append(final_tip)
-    
-        
-        plt.scatter([t[0] for t in tips], [t[1] for t in tips])
-        plt.title("Random Policy Workspace Exploration")
+                    obs_t = self._make_transition(state_t, actuator_t, target)
+
+                    observations.append(obs_t)
+                    actions_trajectory.append(action_t)
+
+            if len(actions_trajectory) == 0:
+                continue
+
+            # extra utolsó observation
+            last_obs = self._final_observation(tips[-1], actuators[-1])
+            observations.append(last_obs)
+
+            traj = Trajectory(
+                obs=np.array(observations, dtype=np.float32),
+                acts=np.array(actions_trajectory, dtype=np.float32),
+                infos=None,
+                terminal=True,
+                )
+
+            trajectories.append(traj)
+
+        # --- Vizualizáció ---
+        plt.scatter([t[0] for t in targets], [t[1] for t in targets], s=5)
+        plt.title("BC Targets (Multiple targets per trajectory, no duplication)")
         plt.xlabel("X Position")
         plt.ylabel("Y Position")
         plt.grid()
         plt.show()
-    def generate_demonstrations(self, amount_of_demonstration):
-
-       
-        trajectories = []
-
-        for _ in range(amount_of_demonstration):
-
-            marker_positions,actuators,actions,target,_=self.one_rollout()
-            actions=actions[:-1]
-            observations = self.assebmly_observation(
-                    marker_positions,
-                    actuators,
-                    target
-                )
-
-            traj = Trajectory(
-                obs=np.array(observations, dtype=np.float32),
-                acts=np.array(actions, dtype=np.float32),
-                infos=None,
-                terminal=True,
-            )
-
-            trajectories.append(traj)
 
         return trajectories
-    def train_BC(self, amount_of_demonstration):
 
-        trajectories = self.generate_demonstrations(amount_of_demonstration)
 
-        policy = ActorCriticPolicy(
-        observation_space=self.observation_space,
-        action_space=self.action_space,
-        lr_schedule=lambda _: self.lr,
-        net_arch=self.net_arch,
-        activation_fn=self.activation_fn
-        )
-        run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S_bc")
-        root = Path("results") / run_name
-        model_dir = root / "models"
-        log_dir = root / "logs"
 
-        model_dir.mkdir(parents=True, exist_ok=True)
-        log_dir.mkdir(parents=True, exist_ok=True)
-        logger = imit_logger.configure(
-        folder=str(log_dir),
-        format_strs=["tensorboard", "stdout"],
-    )
-        bc_trainer = BC(
-            observation_space=self.observation_space,
-            action_space=self.action_space,
-            rng=self.seed,
-            demonstrations=trajectories,
-            policy=policy,
-            custom_logger=logger
-        )
-
-        bc_trainer.train(n_epochs=self.bc_epochs)
-        torch.save(
-        bc_trainer.policy.state_dict(),
-        model_dir / "bc_policy.pt"
-        )
-
-        print(f"Done. Results saved to: {root}")
-        return bc_trainer
+   
         
-    def many_rollout(self, amount_of_demonstration):
-
-        results = [
-            self.one_rollout()
-            for _ in range(amount_of_demonstration)
-        ]
-
-        marker_positions = [r[0] for r in results]
-        actuators = [r[1] for r in results]
-        actions = [r[2] for r in results]
-        targets = [r[3] for r in results]
-        policy_names = [r[4] for r in results]
-
-        # target pontok (XY)
-        points = np.array([t for t in targets])
-
-        labels = np.array(policy_names)
-
-        for label in set(labels):
-            mask = labels == label
-
-            plt.scatter(
-                points[mask, 0],
-                points[mask, 1],
-                label=label
-            )
-
-        plt.legend()
-        plt.show()
+  
