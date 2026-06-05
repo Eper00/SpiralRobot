@@ -105,7 +105,7 @@ class TentacleBaseEnv(gym.Env):
         self._max_episode_steps = int(
             self.simulation_length_seconds
             / self.time_per_step
-        )
+        )+50
 
         # -------------------------
         # Spaces

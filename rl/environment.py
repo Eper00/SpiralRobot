@@ -84,20 +84,45 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
 
         return reward
     def reset(self, *, seed=None, options=None):
-        self.prev_dist=None
         super().reset(seed=seed)
-
         self._base_reset()
 
+        target = self.target_position
+        direction = -1 if target[0] >= 0 else +1
+
+        dist = np.linalg.norm(target)
+        coil_radius = 0.3
+        reach_height = 0.55
+
+
+        # --- DÖNTÉSI FA ---
+        if dist < coil_radius:
+            # coil-zóna → coil irány
+            action = np.array([direction, -direction])
+
+        elif target[1] > reach_height:
+            # reach-zóna → átellenes oldal
+            action = np.array([-direction, direction])
+
+        else:
+            # köztes zóna → coil irány stabilabb
+            action = np.array([direction, -direction])
+
+        # --- coiling ---
+        for _ in range(50):
+            self._base_step(action)
+
+        # --- buffer ---
         self.obs_buffer.clear()
-
         raw = self._get_current_raw_obs()
-
         for _ in range(self.num_frames):
-            self.obs_buffer.append(raw)
+            self.obs_buffer.append(raw.copy())
 
         return self._get_obs(), self._get_info()
-    
+
+            
+
+   
 
 
     
