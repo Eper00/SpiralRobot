@@ -9,7 +9,7 @@ import mujoco.viewer
 import os
 from collections import deque
 from typing import  Optional, Dict, Any
-from common.support import _get_sites_positions, _action_to_ctrl,_normalize_position,_normalize_actuator_lengths,load_config
+from common.support import _get_sites_positions, _action_to_ctrl,_normalize_position,_normalize_actuator_lengths,load_config,sample_target
 import torch
 class TentacleBaseEnv(gym.Env):
 
@@ -51,8 +51,8 @@ class TentacleBaseEnv(gym.Env):
 
         self.model = mujoco.MjModel.from_xml_path(xml_file)
         self.data = mujoco.MjData(self.model)
-        #self.marker_names= [f"marker_{i}" for i in range(1, self.config['marker_number']+1)]
-        self.marker_names= "marker_25"
+        self.marker_names= [f"marker_{i}" for i in range(1, self.config['marker_number']+1)]
+        #self.marker_names= "marker_25"
         # -------------------------
         # Config
         # -------------------------
@@ -62,17 +62,13 @@ class TentacleBaseEnv(gym.Env):
         )
 
         self.num_frames = self.config['num_frames']
+        self.workspace_center = np.array(self.config['workspace_center'])  # pl. [0.0, 0.6]
+        self.workspace_inner_radius = self.config['workspace_inner_radius']  # pl. 0.05
+        self.workspace_outer_radius = self.config['workspace_outer_radius'] 
 
-        self.target_bounds_min = np.array(self.config['target_bounds_min'])
-        self.target_bounds_max = np.array(self.config['target_bounds_max'])
 
-        self.workspace_center = (
-            self.target_bounds_min + self.target_bounds_max
-        ) / 2
-
-        self.workspace_scale = (
-            self.target_bounds_max - self.target_bounds_min
-        ) / 2
+        self.workspace_scale = np.array([self.workspace_outer_radius,
+                                    self.workspace_outer_radius])
         # -------------------------
         # Mujoco timing
         # -------------------------
@@ -80,7 +76,7 @@ class TentacleBaseEnv(gym.Env):
             self.config['simulation_length_seconds']
         )
         self.max_distance = np.linalg.norm(
-        self.target_bounds_max - self.target_bounds_min
+        self.workspace_inner_radius
         )
         self.reward_distance_scale = (
         self.config['reward_distance_scale']
@@ -105,13 +101,13 @@ class TentacleBaseEnv(gym.Env):
         self._max_episode_steps = int(
             self.simulation_length_seconds
             / self.time_per_step
-        )+50
+        )
 
         # -------------------------
         # Spaces
         # -------------------------
         self.actuator_dim = self.model.nu 
-        self.target_dim= len(self.target_bounds_min)
+        self.target_dim= len(self.workspace_center)
         self.action_space = spaces.Box(
             low=-1,
             high=1,
@@ -133,10 +129,11 @@ class TentacleBaseEnv(gym.Env):
             self.marker_names[-1],
         )
 
-        self.target_site_id = mujoco.mj_name2id(
+        self.target_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "target")
+        self.target_geom_id = mujoco.mj_name2id(
             self.model,
-            mujoco.mjtObj.mjOBJ_SITE,
-            "target",
+            mujoco.mjtObj.mjOBJ_GEOM,
+            "target_geom"
         )
 
         # -------------------------
@@ -152,8 +149,8 @@ class TentacleBaseEnv(gym.Env):
         # -------------------------
         # Observation dims
         # -------------------------
-
-        self.single_frame_obs_dim = self.config['marker_number'] * self.target_dim + self.target_dim
+        
+        self.single_frame_obs_dim = len(self.marker_names) * self.target_dim + self.target_dim
         self.prev_action=None
         self.prev_dist=None
         if self.include_actuator_lengths_in_obs:
@@ -176,30 +173,15 @@ class TentacleBaseEnv(gym.Env):
     def _get_current_raw_obs(self):
 
 
-        marker_positions = _get_sites_positions(self.model, self.data, self.marker_names)[:, 1:]
+        self.marker_positions = _get_sites_positions(self.model, self.data, self.marker_names)[:, 1:]
+        marker_positions=self.marker_positions.copy()
         target = self.target_position.copy()
-
-        marker_positions = _normalize_position(
-            marker_positions,
-            self.workspace_center,
-            self.workspace_scale,
-        )
-        target = _normalize_position(
-            target,
-            self.workspace_center,
-            self.workspace_scale,
-        )
-
         obs_parts = np.concatenate([marker_positions.flatten(), target.flatten()])
         if self.include_actuator_lengths_in_obs:
 
-            actuator = self.data.actuator_length.copy()
-
-            actuator = _normalize_actuator_lengths(
-                actuator,
-                self.cable_min,
-                self.cable_max,
-            )
+            self.actuator = self.data.actuator_length.copy()
+            actuator=self.actuator.copy()
+            
             obs_parts = np.concatenate([obs_parts, actuator.flatten()])
    
 
@@ -210,27 +192,38 @@ class TentacleBaseEnv(gym.Env):
         mujoco.mj_resetData(self.model, self.data)
 
         self._elapsed_steps = 0
-        try:
-            self.targets = np.load("workspace_points.npy")
-        except FileNotFoundError:
-            self.targets = None
         self.data.qvel[:] = 0
         self.data.ctrl[:] = 0.
-        if self.targets is None:
-            self.target_position = np.random.uniform(
-                self.target_bounds_min,
-                self.target_bounds_max,
-                self.target_dim,
-            )
-        else:
-            self.target_position = self.targets[np.random.choice(len(self.targets))]
 
-        self.data.site_xpos[self.target_site_id] = np.array(
-        [0.0, self.target_position[0], self.target_position[1]]
-    )
-    
+
+
+
+        [y,z]=sample_target(self.workspace_center,self.workspace_inner_radius,self.workspace_outer_radius)
+        self.target_position = np.array([y, z])
+
+
+
+        # 2) random radius
+        random_radius = np.random.uniform(0.005, 0.03)
+        geom_id = self.model.geom(name="target_geom").id
+        self.model.geom_size[geom_id][0] = random_radius
+
+        # 3) target freejoint qpos index
+        jnt_id = self.model.joint(name="target_freejoint").id
+        qpos_adr = self.model.jnt_qposadr[jnt_id]
+
+        # 4) pozíció beállítása
+        self.data.qpos[qpos_adr : qpos_adr+3] = np.array([
+            0.0,
+            self.target_position[0],
+            self.target_position[1]
+        ])
+
+        # 5) orientáció (unit quaternion)
+        self.data.qpos[qpos_adr+3 : qpos_adr+7] = np.array([1, 0, 0, 0])
 
         mujoco.mj_forward(self.model, self.data)
+
     def _base_step(self, action):
 
         action = np.clip(action, -1, 1)
@@ -292,7 +285,7 @@ class TentacleBaseEnv(gym.Env):
     def fail_step(self):
             return (
                 self._get_current_raw_obs(),
-                -10.0,
+                -1000.0,
                 True,
                 False,
                 self._get_info()

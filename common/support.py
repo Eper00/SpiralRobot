@@ -117,7 +117,17 @@ def get_workspace_points(expert,
     return feasible_points
 
 
-
+def sample_target(workspace_center,workspace_inner_radius,workspace_outer_radius):
+    r = np.sqrt(
+        np.random.uniform(
+            workspace_inner_radius**2,
+            workspace_outer_radius**2
+        )
+    )
+    theta = np.pi * np.random.rand()
+    x = workspace_center[0] + r * np.cos(theta)
+    y = workspace_center[1] + r * np.sin(theta)
+    return np.array([x, y])
 
 
 def _normalize_position(positions,workspace_center,workspace_scale) -> np.ndarray:

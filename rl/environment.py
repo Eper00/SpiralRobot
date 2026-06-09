@@ -21,8 +21,10 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
         
         super().__init__(config, render_mode)
         self.warm_start=self.config['warm_start']
-        self.bc_path=self.config['bc_path']
-        
+        if self.warm_start==True and  os.path.exists(self.config['bc_path']):
+            self.bc_path=self.config['bc_path']
+        else:
+            self.bc_path=None
     def _get_obs(self) -> np.ndarray:
         """Retrieves the stacked observation from the buffer."""
         assert len(self.obs_buffer) == self.num_frames, "Observation buffer not full!"
@@ -35,17 +37,15 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
         else:
             return self.fail_step()
     def _compute_step(self,action):
-        # Smooth normalized reward
-        tip = _get_sites_positions(self.model, self.data, self.marker_names[-1]).squeeze()[1:]
-        target=self.target_position
-        actuator_lengths = self.data.actuator_length.copy()
-        reward =self.reward_function(tip,target,action)
+       
+        
+        
+        obs = self._get_current_raw_obs()
+        reward =self.reward_function(self.marker_positions,self.target_position,action)
         truncated = (
             self._elapsed_steps >= self._max_episode_steps
         )
-        obs = self._get_current_raw_obs()
         self.obs_buffer.append(obs)
-        self.prev_action=action.copy()
         return (
             self._get_obs(),
             float(reward),
@@ -54,65 +54,14 @@ class TentacleTargetFollowingRL(TentacleBaseEnv):
             self._get_info(),
         )
     
-    def reward_function(self, tip, target, action):
-
-        # distance (normalizálva)
-        dist = np.linalg.norm(tip - target) / (self.max_distance + 1e-8)
-
-        # prev_dist safety init
-        if self.prev_dist is None:
-            self.prev_dist = dist
-
-        # progress (clipped, hogy ne legyen outlier spike)
-        progress = self.prev_dist - dist
-        progress = np.clip(progress, -1.0, 1.0)
-
-        # dense proximity term (stable scale)
-        proximity = np.exp(-self.reward_distance_scale * dist)
-
-        # action penalty (kevesebb agresszív súly)
-        action_penalty = np.mean(np.square(action))
-
-        reward = (
-            2.0 * progress +
-            0.2 * proximity -
-            0.005 * action_penalty
-        )
-
-        # update
-        self.prev_dist = dist
-
+    def reward_function(self, markers_positon, target, action):
+        reward=-np.linalg.norm(markers_positon-target)
         return reward
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self._base_reset()
 
-        target = self.target_position
-        direction = -1 if target[0] >= 0 else +1
-
-        dist = np.linalg.norm(target)
-        coil_radius = 0.3
-        reach_height = 0.55
-
-
-        # --- DÖNTÉSI FA ---
-        if dist < coil_radius:
-            # coil-zóna → coil irány
-            action = np.array([direction, -direction])
-
-        elif target[1] > reach_height:
-            # reach-zóna → átellenes oldal
-            action = np.array([-direction, direction])
-
-        else:
-            # köztes zóna → coil irány stabilabb
-            action = np.array([direction, -direction])
-
-        # --- coiling ---
-        for _ in range(50):
-            self._base_step(action)
-
-        # --- buffer ---
+      
         self.obs_buffer.clear()
         raw = self._get_current_raw_obs()
         for _ in range(self.num_frames):
