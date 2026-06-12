@@ -51,7 +51,30 @@ class TentacleBaseEnv(gym.Env):
 
         self.model = mujoco.MjModel.from_xml_path(xml_file)
         self.data = mujoco.MjData(self.model)
+
+        self.segment_effective_radius = []
+        delta = 0.01   # 3 mm offset – hangolható
         self.marker_names= [f"marker_{i}" for i in range(1, self.config['marker_number']+1)]
+       
+        for i in range(1, len(self.marker_names)+1):   
+            s1 = f"s{i}_1"
+            s3 = f"s{i}_3"
+
+            id1 = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, s1)
+            id3 = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, s3)
+
+            # Y koordináták (szegmens két oldala)
+            y1 = self.model.site_pos[id1][1]
+            y3 = self.model.site_pos[id3][1]
+
+            width = abs(y1 - y3)
+            radius = width / 2.0
+
+            effective_radius = radius + delta
+            self.segment_effective_radius.append(effective_radius)
+
+
+        
         #self.marker_names= "marker_25"
         # -------------------------
         # Config
@@ -118,8 +141,9 @@ class TentacleBaseEnv(gym.Env):
         self.targets=None
         self.actuator_low = self.model.actuator_ctrlrange[:, 0]
         self.actuator_high = self.model.actuator_ctrlrange[:, 1]
-        self.cable_min= np.array(self.config['actuator_limits'])[:, 0]
-        self.cable_max= np.array(self.config['actuator_limits'])[:, 1]
+        self.cable_min= np.array(self.config['cable_lengths'])[0]
+        self.cable_max= np.array(self.config['cable_lengths'])[1]
+
         # -------------------------
         # Sites
         # -------------------------
@@ -130,11 +154,7 @@ class TentacleBaseEnv(gym.Env):
         )
 
         self.target_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "target")
-        self.target_geom_id = mujoco.mj_name2id(
-            self.model,
-            mujoco.mjtObj.mjOBJ_GEOM,
-            "target_geom"
-        )
+        self.target_geom_id = self.model.geom(name="target_geom").id
 
         # -------------------------
         # State
@@ -175,13 +195,15 @@ class TentacleBaseEnv(gym.Env):
 
         self.marker_positions = _get_sites_positions(self.model, self.data, self.marker_names)[:, 1:]
         marker_positions=self.marker_positions.copy()
+        marker_positions=_normalize_position(marker_positions,self.workspace_center,self.workspace_scale)
         target = self.target_position.copy()
+        target=_normalize_position(target,self.workspace_center,self.workspace_scale)
         obs_parts = np.concatenate([marker_positions.flatten(), target.flatten()])
         if self.include_actuator_lengths_in_obs:
 
             self.actuator = self.data.actuator_length.copy()
             actuator=self.actuator.copy()
-            
+            actuator=_normalize_actuator_lengths(actuator,self.actuator_low,self.actuator_high)
             obs_parts = np.concatenate([obs_parts, actuator.flatten()])
    
 
@@ -195,19 +217,21 @@ class TentacleBaseEnv(gym.Env):
         self.data.qvel[:] = 0
         self.data.ctrl[:] = 0.
 
-
-
-
-        [y,z]=sample_target(self.workspace_center,self.workspace_inner_radius,self.workspace_outer_radius)
+        #random_mass = np.random.uniform(0.5 ,1)
+        random_radius = np.random.uniform(0.01, 0.05)
+        while True:
+            [y,z]=sample_target(self.workspace_center,self.workspace_inner_radius,self.workspace_outer_radius)
+            if np.abs(y)>0.05+random_radius:
+                break 
         self.target_position = np.array([y, z])
 
 
 
         # 2) random radius
-        random_radius = np.random.uniform(0.005, 0.03)
-        geom_id = self.model.geom(name="target_geom").id
-        self.model.geom_size[geom_id][0] = random_radius
-
+       
+      
+        self.model.geom_size[self.target_geom_id][0] = random_radius
+        #self.model.body_mass[self.target_site_id] = random_mass
         # 3) target freejoint qpos index
         jnt_id = self.model.joint(name="target_freejoint").id
         qpos_adr = self.model.jnt_qposadr[jnt_id]

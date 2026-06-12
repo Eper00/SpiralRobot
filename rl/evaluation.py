@@ -9,7 +9,7 @@ import torch
 from stable_baselines3 import PPO
 from rich.console import Console
 
-from rl.environment import TentacleTargetFollowingRL
+from rl.environment import TentacleRL
 from common.support import load_config
 
 console = Console()
@@ -104,7 +104,7 @@ def evaluate(
     if not model_path.exists():
         raise FileNotFoundError(model_path)
 
-    env = TentacleTargetFollowingRL(
+    env = TentacleRL(
         cfg,
         render_mode=rl_eval["render_mode"]
     )

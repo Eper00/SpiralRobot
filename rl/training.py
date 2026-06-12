@@ -13,18 +13,36 @@ import torch.nn as nn
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback,BaseCallback
 from stable_baselines3.common.monitor import Monitor
 from common.support import load_config
 from rich.console import Console
-from rl.environment import env_creator, TentacleTargetFollowingRL
+from rl.environment import env_creator, TentacleRL
 import torch
-
+from typing import Callable
 logger = logging.getLogger(__name__)
 console = Console()
 app = typer.Typer()
 
 
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    """
+    Linear learning rate schedule.
+
+    :param initial_value: Initial learning rate.
+    :return: schedule that computes
+      current learning rate depending on remaining progress
+    """
+    def func(progress_remaining: float) -> float:
+        """
+        Progress will decrease from 1 (beginning) to 0.
+
+        :param progress_remaining:
+        :return: current learning rate
+        """
+        return progress_remaining * initial_value
+
+    return func
 
 def make_env(env_cfg, rank):
     def _init():
@@ -84,41 +102,44 @@ def train(config: Optional[str] = typer.Option(None, "--config", "-c")):
 
     # ENV
     train_env = make_vec(cfg, train_cfg["num_envs"])
-    eval_env = TentacleTargetFollowingRL(config)
-
+    eval_env = make_env(cfg,1)().env
     net = [int(x) for x in eval_env.net_arch]
     policy_kwargs = dict(
         net_arch=dict(pi=net, vf=net),
         activation_fn=eval_env.activation_fn,
     )
-  
     # MODEL
-    model = PPO(
-        "MlpPolicy",
-        train_env,
-        learning_rate=train_cfg["learning_rate"],
-        n_steps=train_cfg["n_steps"],
-        batch_size=train_cfg["batch_size"],
-        n_epochs=train_cfg["n_epochs"],
-        gamma=train_cfg["gamma"],
-        gae_lambda=train_cfg["gae_lambda"],
-        clip_range=train_cfg["clip_range"],
-        ent_coef=train_cfg["ent_coef"],
-        policy_kwargs=policy_kwargs,
-        target_kl=train_cfg["target_kl"],
-        verbose=1,
-        tensorboard_log=str(log_dir),  
-        device="cuda",
-    )
+    if (eval_env.warm_start and eval_env.prev_ppo_path is not None):
+        print("Previous PPO is loaded")
+        train_cfg["learning_rate"]=train_cfg["learning_rate"]*0.3
+        model = PPO.load(eval_env.prev_ppo_path, print_system_info=True,env=train_env, tensorboard_log=str(log_dir),learning_rate=linear_schedule(train_cfg["learning_rate"]))
+        
+    else:
+        print("No previus POO. Training from scratch.")
+        model = PPO(
+            "MlpPolicy",
+            train_env,
+            learning_rate=linear_schedule(train_cfg["learning_rate"]),
+            n_steps=train_cfg["n_steps"],
+            batch_size=train_cfg["batch_size"],
+            n_epochs=train_cfg["n_epochs"],
+            gamma=train_cfg["gamma"],
+            gae_lambda=train_cfg["gae_lambda"],
+            clip_range=train_cfg["clip_range"],
+            ent_coef=train_cfg["ent_coef"],
+            policy_kwargs=policy_kwargs,
+            target_kl=train_cfg["target_kl"],
+            verbose=1,
+            tensorboard_log=str(log_dir),  
+            device="cuda",
+        )
 
 
     
-    if (eval_env.warm_start and eval_env.bc_path is not None):
-        state_dict = torch.load(eval_env.bc_path, map_location="cpu")
-        model.policy.load_state_dict(state_dict, strict=False)
-        print(f"Loaded BC from {eval_env.bc_path}")
-    else:
-        print("No BC weights found. Training from scratch.")
+   
+
+
+
     callbacks = make_callbacks(cfg, eval_env, model_dir, log_dir)
 
 

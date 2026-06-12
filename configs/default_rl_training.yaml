@@ -1,19 +1,19 @@
 policy:
-  net_arch: [256, 256]
+  net_arch: [128, 128]
   activation_fn: tanh
   learning_rate: "0.0003904770450788824"
 rl_env:
   # ----------------------------
   # MuJoCo simulation settings
   # ----------------------------
-  xml_file: "/home/tomi/SpiralRobot/assets/simulation/tentalce_2D-v2/robot.xml"
-  simulation_length_seconds: 2
-  time_between_steps_seconds: 0.01
+  xml_file: "/home/tomi/SpiralRobot/assets/simulation/tentacle_2D-v3/robot.xml"
+  simulation_length_seconds: 2.5
+  time_between_steps_seconds: 0.02
 
   cable_lengths: [0.185632848, 1.160205301]
-  actuator_limits: [[-1, 0.5], [-1, 0.5]]
-  warm_start: True
-  bc_path: "/home/tomi/SpiralRobot/results/run_20260604_202331_bc/models/bc_policy.pt"
+  actuator_limits: [[-1, 1], [-1, 1]]
+  warm_start: False
+  prev_ppo_path: "/home/tomi/SpiralRobot/results/run_20260612_113330_rl_reach/models/best_model/best_model.zip"
   # ----------------------------
   # Reward shaping
   # ----------------------------
@@ -24,18 +24,18 @@ rl_env:
   # Environment objects
   # ----------------------------
 
-  workspace_center: [0., 0.5]
-  workspace_inner_radius: 0.2
-  workspace_outer_radius: 0.3
+  workspace_center: [0., 0.9]
+  workspace_inner_radius: 0.6
+  workspace_outer_radius: 0.2
   # ----------------------------
   # Observation settings
   # ----------------------------
-  num_frames: 10
+  num_frames: 20
   include_actuator_lengths_in_obs: true
 
   # Optional
   fixed_target_position: null
-  marker_number: 25
+  marker_number: 24
 
 # =====================================================
 
@@ -44,7 +44,7 @@ rl_training_params:
   num_envs: 10
 
   # Training duration
-  total_timesteps: 8000000
+  total_timesteps: 5000000
 
   # Evaluation
   eval_freq: 10000
