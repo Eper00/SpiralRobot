@@ -7,13 +7,14 @@ rl_env:
   # MuJoCo simulation settings
   # ----------------------------
   xml_file: "/home/tomi/SpiralRobot/assets/simulation/tentacle_2D-v3/robot.xml"
-  simulation_length_seconds: 2.5
+  # for lesson_1 and lesson_2 it is 2.5
+  simulation_length_seconds: 5
   time_between_steps_seconds: 0.02
 
   cable_lengths: [0.185632848, 1.160205301]
   actuator_limits: [[-1, 1], [-1, 1]]
-  warm_start: False
-  prev_ppo_path: "/home/tomi/SpiralRobot/results/run_20260612_113330_rl_reach/models/best_model/best_model.zip"
+  warm_start: True
+  prev_ppo_path: "/home/tomi/SpiralRobot/results/run_20260614_142507_rl_lesson_2/models/best_model/best_model.zip"
   # ----------------------------
   # Reward shaping
   # ----------------------------
@@ -56,13 +57,14 @@ rl_training_params:
   log_dir_base: "results"
 
   # PPO hyperparameters
+  # for lesson_1 and lesson_2 it is 0,0001
   learning_rate: 0.0001 
   n_steps: 512
   batch_size: 128
-  n_epochs: 6
+  n_epochs: 5
   gamma: 0.99
   gae_lambda: 0.95
-  clip_range: 0.2
+  clip_range: 0.1
   ent_coef: 0.005
   target_kl: 0.12
 
@@ -72,7 +74,7 @@ rl_training_params:
 # =====================================================
 
 rl_evaluation:
-  num_episodes: 20
+  num_episodes: 10
   render_delay: 0.01
   deterministic_actions: true
   grid_size: 20

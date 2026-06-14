@@ -44,7 +44,7 @@ class TentacleRL(TentacleBaseEnv):
         
         
         obs = self._get_current_raw_obs()
-        reward =self.reward_function(self.marker_positions,self.target_position,action)
+        reward =self.reward_function(action)
         truncated = (
             self._elapsed_steps >= self._max_episode_steps
         )
@@ -89,26 +89,56 @@ class TentacleRL(TentacleBaseEnv):
         return distance_penalty + contact_reward
 
     '''
-    def reward_function(self, markers_position, target_pos, action):
+    # Reward for lesson_1 (contact_reward=0) , reward for lesson_2 (contact_reward!=0)
+    def reward_function(self, action):
 
         R_target = self.model.geom_size[self.target_geom_id][0]
 
-        # --- 1) Distance shaping: szegmens vastagság figyelembe véve ---
-        # Utolsó marker (vagy bármelyik, amit használsz)
-        m = markers_position[-3:]
+        if self.prev_marker_positions is not None:
+            prev_marker_positions = self.prev_marker_positions[-6:]
+        else:
+            prev_marker_positions = self.marker_positions[-6:]
 
-        # Ehhez a markerhez tartozó szegmens sugara
-        R_seg = self.segment_effective_radius[-1]
+        marker_positions = self.marker_positions[-6:]
+        R_seg = self.segment_effective_radius[-6:]
 
-        # Felület–felület távolság
-        surface_dist = np.linalg.norm(m - target_pos) - (R_target + R_seg)
+        # Markerenkénti középpont-középpont távolság
+        prev_dist = np.linalg.norm(
+            prev_marker_positions - self.target_position,
+            axis=1
+        )
 
-        # Ha átfedés lenne, 0-ra vágjuk
-        surface_dist = max(surface_dist, 0.0)
+        dist = np.linalg.norm(
+            marker_positions - self.target_position,
+            axis=1
+        )
+        #Lesson_1
+         # Felület-felület távolság
+        prev_surface_dist = prev_dist - (R_target + R_seg)
+        surface_dist = dist - (R_target + R_seg)
 
-        distance_penalty = -surface_dist
-
-        return distance_penalty
+        # Negatív értékek levágása (átfedés esetén)
+        prev_surface_dist = np.maximum(prev_surface_dist, 0.0)
+        surface_dist = np.maximum(surface_dist, 0.0)
+        progress_reward = np.mean(prev_surface_dist - surface_dist)
+        #Lesson_2
+        contact_reward=0
+        for i in range(1,6):
+            if dist[-i]-R_seg[-i]-R_target<0.005:
+                contact_reward=contact_reward+0.01
+               
+        
+        if self.prev_target_position is not None:
+            prev_target_position=self.prev_target_position
+        else:
+            prev_target_position=self.target_position
+        prev_dist_target_to_workspace=np.linalg.norm(prev_target_position-self.workspace_center)
+        dist_target_to_workspace=np.linalg.norm(self.target_position-self.workspace_center)
+        #Lesson_3
+        grab_reward=np.mean(prev_dist_target_to_workspace - dist_target_to_workspace)*0.1
+   
+        
+        return progress_reward+contact_reward+grab_reward
 
     
     def reset(self, *, seed=None, options=None):

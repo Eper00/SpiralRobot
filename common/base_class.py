@@ -137,10 +137,15 @@ class TentacleBaseEnv(gym.Env):
             shape=(self.actuator_dim,),
             dtype=np.float32,
         )
-        
+        self.marker_positions=_get_sites_positions(self.model, self.data, self.marker_names)[:, 1:]
         self.targets=None
+        self.prev_marker_positions=None
+        self.prev_target_position=None
         self.actuator_low = self.model.actuator_ctrlrange[:, 0]
         self.actuator_high = self.model.actuator_ctrlrange[:, 1]
+        if self.include_actuator_lengths_in_obs:
+            self.actuator = self.data.actuator_length.copy()
+
         self.cable_min= np.array(self.config['cable_lengths'])[0]
         self.cable_max= np.array(self.config['cable_lengths'])[1]
 
@@ -193,18 +198,16 @@ class TentacleBaseEnv(gym.Env):
     def _get_current_raw_obs(self):
 
 
-        self.marker_positions = _get_sites_positions(self.model, self.data, self.marker_names)[:, 1:]
-        marker_positions=self.marker_positions.copy()
-        marker_positions=_normalize_position(marker_positions,self.workspace_center,self.workspace_scale)
-        target = self.target_position.copy()
-        target=_normalize_position(target,self.workspace_center,self.workspace_scale)
-        obs_parts = np.concatenate([marker_positions.flatten(), target.flatten()])
+       
+        normalized_marker_positions=_normalize_position(self.marker_positions,self.workspace_center,self.workspace_scale)
+        normalized_target_position=_normalize_position(self.target_position,self.workspace_center,self.workspace_scale)
+        obs_parts = np.concatenate([normalized_marker_positions.flatten(), normalized_target_position.flatten()])
         if self.include_actuator_lengths_in_obs:
 
-            self.actuator = self.data.actuator_length.copy()
-            actuator=self.actuator.copy()
-            actuator=_normalize_actuator_lengths(actuator,self.actuator_low,self.actuator_high)
-            obs_parts = np.concatenate([obs_parts, actuator.flatten()])
+            
+            
+            normalized_actuator=_normalize_actuator_lengths(self.actuator,self.actuator_low,self.actuator_high)
+            obs_parts = np.concatenate([obs_parts, normalized_actuator.flatten()])
    
 
 
@@ -216,8 +219,8 @@ class TentacleBaseEnv(gym.Env):
         self._elapsed_steps = 0
         self.data.qvel[:] = 0
         self.data.ctrl[:] = 0.
-
-        #random_mass = np.random.uniform(0.5 ,1)
+        self.prev_target_position=self.target_position
+        random_mass = np.random.uniform(0.5,1)
         random_radius = np.random.uniform(0.01, 0.05)
         while True:
             [y,z]=sample_target(self.workspace_center,self.workspace_inner_radius,self.workspace_outer_radius)
@@ -231,7 +234,7 @@ class TentacleBaseEnv(gym.Env):
        
       
         self.model.geom_size[self.target_geom_id][0] = random_radius
-        #self.model.body_mass[self.target_site_id] = random_mass
+        self.model.body_mass[self.target_site_id] = random_mass
         # 3) target freejoint qpos index
         jnt_id = self.model.joint(name="target_freejoint").id
         qpos_adr = self.model.jnt_qposadr[jnt_id]
@@ -259,19 +262,23 @@ class TentacleBaseEnv(gym.Env):
         )
 
         self.data.ctrl[:] = ctrl
-
+        if self.marker_positions is not None:
+            self.prev_marker_positions=self.marker_positions
         for _ in range(self.frame_skip):
 
             mujoco.mj_step(self.model, self.data)
 
-            if (
-                self.is_unstable()
-                or np.any(np.abs(self.data.qacc) > 1e9)
-            ):
+            if (self.is_unstable() or np.any(np.abs(self.data.qacc) > 1e8)):
                 return False
 
         self._elapsed_steps += 1
+        if self.include_actuator_lengths_in_obs:
+            self.actuator = self.data.actuator_length.copy()
+        self.marker_positions = _get_sites_positions(self.model, self.data, self.marker_names)[:, 1:]
+        jnt_id = self.model.joint(name="target_freejoint").id
+        qpos_adr = self.model.jnt_qposadr[jnt_id]
 
+        self.target_position=self.data.qpos[qpos_adr : qpos_adr+3][1:]
         mujoco.mj_forward(self.model, self.data)
 
         return True

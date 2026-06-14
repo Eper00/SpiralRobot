@@ -111,11 +111,11 @@ def train(config: Optional[str] = typer.Option(None, "--config", "-c")):
     # MODEL
     if (eval_env.warm_start and eval_env.prev_ppo_path is not None):
         print("Previous PPO is loaded")
-        train_cfg["learning_rate"]=train_cfg["learning_rate"]*0.3
+       
         model = PPO.load(eval_env.prev_ppo_path, print_system_info=True,env=train_env, tensorboard_log=str(log_dir),learning_rate=linear_schedule(train_cfg["learning_rate"]))
         
     else:
-        print("No previus POO. Training from scratch.")
+        print("No previous POO. Training from scratch.")
         model = PPO(
             "MlpPolicy",
             train_env,
